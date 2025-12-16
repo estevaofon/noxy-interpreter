@@ -3,7 +3,7 @@
 Um interpretador tree-walking completo para a linguagem de programação **Noxy**, escrito em Python.
 
 <p align="center">
-<img width="300" height="300 alt="481382230-8af825b7-fc42-4e0b-8aab-da9bba99b6e0" src="https://github.com/user-attachments/assets/cd9c70be-e01f-4d29-a703-c394c9d62531" />
+<img width="300" height="300 alt="481382230-8af825b7-fc42-4e0b-8aab-da9bba99b6e0" src="https://github.com/user-attachments/assets/29244835-8d84-44ad-bfd2-fd2894feac3a" />
 </p>
 
 ## O que é Noxy?
