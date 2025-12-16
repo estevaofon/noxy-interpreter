@@ -1,0 +1,9 @@
+[project]
+name = "noxy-interpreter"
+version = "0.1.0"
+description = "Interpretador para a linguagem Noxy"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0.0",
+]

@@ -1,0 +1,17 @@
+func fibonacci(n: int) -> int
+    if n <= 1 then
+        return n
+    end
+    return fibonacci(n-1) + fibonacci(n-2)
+end
+
+func imprimir_fibonacci(qtd: int) -> void
+    let i: int = 0
+    while qtd >= 0 do
+        print(f"F({i}) = {fibonacci(i)}")
+        i = i + 1
+        qtd = qtd - 1
+    end
+end
+
+imprimir_fibonacci(10)

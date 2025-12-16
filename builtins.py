@@ -1,0 +1,188 @@
+"""
+Noxy Interpreter - Funções Builtin
+Implementação das funções nativas do Noxy.
+"""
+
+from typing import Any, Callable
+from environment import NoxyStruct, NoxyRef, NoxyArray
+from errors import NoxyRuntimeError
+
+
+def noxy_print(*args) -> None:
+    """Imprime valores no console."""
+    output = []
+    for arg in args:
+        output.append(value_to_string(arg))
+    print(" ".join(output))
+
+
+def noxy_to_str(value: Any) -> str:
+    """Converte qualquer valor para string."""
+    return value_to_string(value)
+
+
+def noxy_to_int(value: Any) -> int:
+    """Converte float para int (trunca)."""
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            raise NoxyRuntimeError(f"Não é possível converter '{value}' para int")
+    raise NoxyRuntimeError(f"Não é possível converter {type(value).__name__} para int")
+
+
+def noxy_to_float(value: Any) -> float:
+    """Converte int para float."""
+    if isinstance(value, int):
+        return float(value)
+    if isinstance(value, float):
+        return value
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            raise NoxyRuntimeError(f"Não é possível converter '{value}' para float")
+    raise NoxyRuntimeError(f"Não é possível converter {type(value).__name__} para float")
+
+
+def noxy_strlen(s: str) -> int:
+    """Retorna o tamanho da string."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError(f"strlen() espera string, recebeu {type(s).__name__}")
+    return len(s)
+
+
+def noxy_ord(char: str) -> int:
+    """Retorna o valor Unicode do caractere."""
+    if not isinstance(char, str):
+        raise NoxyRuntimeError(f"ord() espera string, recebeu {type(char).__name__}")
+    if len(char) != 1:
+        raise NoxyRuntimeError(f"ord() espera string de 1 caractere, recebeu '{char}'")
+    return ord(char)
+
+
+def noxy_length(arr: Any) -> int:
+    """Retorna o tamanho do array."""
+    if isinstance(arr, list):
+        return len(arr)
+    if isinstance(arr, NoxyArray):
+        return len(arr)
+    raise NoxyRuntimeError(f"length() espera array, recebeu {type(arr).__name__}")
+
+
+def noxy_zeros(n: int) -> list:
+    """Cria um array de n zeros."""
+    if not isinstance(n, int):
+        raise NoxyRuntimeError(f"zeros() espera int, recebeu {type(n).__name__}")
+    if n < 0:
+        raise NoxyRuntimeError(f"zeros() não aceita tamanho negativo: {n}")
+    return [0] * n
+
+
+def value_to_string(value: Any) -> str:
+    """Converte um valor Noxy para string."""
+    if value is None:
+        return "null"
+    
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    
+    if isinstance(value, int):
+        return str(value)
+    
+    if isinstance(value, float):
+        # Formato padrão para floats
+        return f"{value:f}"
+    
+    if isinstance(value, str):
+        return value
+    
+    if isinstance(value, list):
+        elements = ", ".join(value_to_string(e) for e in value)
+        return f"[{elements}]"
+    
+    if isinstance(value, NoxyArray):
+        elements = ", ".join(value_to_string(e) for e in value.elements)
+        return f"[{elements}]"
+    
+    if isinstance(value, NoxyStruct):
+        fields = ", ".join(f"{k}: {value_to_string(v)}" for k, v in value.fields.items())
+        return f"{value.type_name}({fields})"
+    
+    if isinstance(value, NoxyRef):
+        if value.target is None and value.target_obj is None:
+            return "null"
+        return value_to_string(value.get_value())
+    
+    return str(value)
+
+
+def format_value(value: Any, format_spec: str = None) -> str:
+    """Formata um valor de acordo com o format spec."""
+    if format_spec is None:
+        return value_to_string(value)
+    
+    # Parse format spec: [width][.precision][type]
+    # Exemplos: "5", "05", ".2f", ".2e", "x", "X", "o"
+    
+    if isinstance(value, int):
+        # Formatos inteiros
+        if format_spec == "x":
+            return format(value, "x")
+        elif format_spec == "X":
+            return format(value, "X")
+        elif format_spec == "o":
+            return format(value, "o")
+        elif format_spec.isdigit():
+            width = int(format_spec)
+            return f"{value:>{width}}"
+        elif format_spec.startswith("0") and format_spec[1:].isdigit():
+            width = int(format_spec[1:])
+            return f"{value:0>{width}}"
+        else:
+            try:
+                return format(value, format_spec)
+            except ValueError:
+                return str(value)
+    
+    elif isinstance(value, float):
+        # Formatos float
+        try:
+            return format(value, format_spec)
+        except ValueError:
+            return str(value)
+    
+    else:
+        # Outros tipos
+        return value_to_string(value)
+
+
+# Dicionário de funções builtin
+BUILTINS: dict[str, Callable] = {
+    "print": noxy_print,
+    "to_str": noxy_to_str,
+    "to_int": noxy_to_int,
+    "to_float": noxy_to_float,
+    "strlen": noxy_strlen,
+    "ord": noxy_ord,
+    "length": noxy_length,
+    "zeros": noxy_zeros,
+}
+
+
+def get_builtin(name: str) -> Callable | None:
+    """Retorna uma função builtin por nome."""
+    return BUILTINS.get(name)
+
+
+def is_builtin(name: str) -> bool:
+    """Verifica se é uma função builtin."""
+    return name in BUILTINS
+
+
+
+
