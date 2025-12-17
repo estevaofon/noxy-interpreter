@@ -1,6 +1,6 @@
 # Noxy Interpreter 🚀
 
-Um interpretador tree-walking completo para a linguagem de programação **Noxy**, escrito em Python.
+Um interpretador tree-walking completo para a linguagem de programação **Noxy**, escrito em Python. [Official Website.](https://estevaofon.github.io/noxy-interpreter/)
 
 <p align="center">
 <img width="300" height="300 alt="481382230-8af825b7-fc42-4e0b-8aab-da9bba99b6e0" src="https://github.com/user-attachments/assets/29244835-8d84-44ad-bfd2-fd2894feac3a" />
@@ -8,7 +8,7 @@ Um interpretador tree-walking completo para a linguagem de programação **Noxy*
 
 ## O que é Noxy?
 
-Noxy é uma linguagem de programação **estaticamente tipada** com:
+Noxy é uma linguagem de programação **estaticamente tipada** criado por Estevao Fonseca. As principais características são:
 
 - ✅ Tipos primitivos: `int`, `float`, `string`, `bool`
 - ✅ Structs com campos tipados
