@@ -1,4 +1,4 @@
-func partition(array: int[], low: int, high: int) -> int
+func partition(array: ref int[], low: int, high: int) -> int
     let i: int = low - 1
     let j: int = low
     let pivot: int = array[high]
@@ -21,7 +21,7 @@ func partition(array: int[], low: int, high: int) -> int
 end
 
 
-func quicksort(array: int[], low: int, high: int)
+func quicksort(array: ref int[], low: int, high: int)
     if low < high then
         let pi: int = partition(array, low, high)
         quicksort(array, low, pi - 1)

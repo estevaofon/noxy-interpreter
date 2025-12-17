@@ -11,7 +11,8 @@ from ast_nodes import (
     Stmt, LetStmt, GlobalStmt, AssignStmt, ExprStmt, IfStmt, WhileStmt,
     ReturnStmt, BreakStmt, FuncDef, StructDef, UseStmt, Program
 )
-from errors import NoxyTypeError, SourceLocation
+from errors import NoxyTypeError, SourceLocation, NoxyError
+from pathlib import Path
 
 
 def type_to_str(t: NoxyType) -> str:
@@ -63,6 +64,10 @@ class TypeChecker:
         self.structs: dict[str, StructDef] = {}
         # Tipo de retorno da função atual (para verificar return)
         self.current_function_return_type: NoxyType | None = None
+        
+        # Gestão de imports
+        self.base_path = Path(".")
+        self.loaded_modules: set[str] = set()
     
     def push_scope(self):
         """Entra em novo escopo."""
@@ -83,14 +88,18 @@ class TypeChecker:
                 return scope[name]
         return None
     
-    def check_program(self, program: Program):
+    def check_program(self, program: Program, base_path: str = "."):
         """Verifica tipos de todo o programa."""
-        # Primeira passada: coleta definições de struct e função
+        self.base_path = Path(base_path)
+        
+        # Primeira passada: coleta definições de struct e função (e processa imports)
         for stmt in program.statements:
             if isinstance(stmt, StructDef):
                 self.structs[stmt.name] = stmt
             elif isinstance(stmt, FuncDef):
                 self.functions[stmt.name] = stmt
+            elif isinstance(stmt, UseStmt):
+                self.check_use(stmt)
         
         # Segunda passada: verifica tipos
         for stmt in program.statements:
@@ -119,7 +128,84 @@ class TypeChecker:
         elif isinstance(stmt, BreakStmt):
             pass  # OK
         elif isinstance(stmt, UseStmt):
-            pass  # Não implementado
+            pass  # Já processado na primeira passada
+
+    def check_use(self, stmt: UseStmt):
+        """Processa import de módulo durante a checagem de tipos."""
+        # Constrói o caminho do módulo
+        module_path = "/".join(stmt.module_path) + ".nx"
+        full_path = self.base_path / module_path
+        
+        # Verifica se o arquivo existe
+        if not full_path.exists():
+            raise NoxyTypeError(
+                f"Módulo não encontrado: {module_path}",
+                stmt.location
+            )
+            
+        # Evita ciclos e processamento duplicado
+        module_key = str(full_path.resolve())
+        if module_key in self.loaded_modules:
+            return
+        self.loaded_modules.add(module_key)
+        
+        try:
+            # Imports locais para evitar dependência circular
+            from lexer import tokenize
+            from parser import Parser
+            
+            # Lê e parseia o módulo
+            source = full_path.read_text(encoding="utf-8")
+            tokens = tokenize(source, str(full_path))
+            parser = Parser(tokens)
+            program = parser.parse()
+            
+            # Recursivamente verifica o módulo importado?
+            # Na verdade, precisamos apenas extrair as definições.
+            # Se quiséssemos verificar types do módulo também, chamaríamos recursivemente.
+            # Por segurança e completude, vamos extrair definições.
+            
+            # Coleta definições do módulo
+            module_functions: dict[str, FuncDef] = {}
+            module_structs: dict[str, StructDef] = {}
+            
+            # Nota: Ao importar, também processamos os imports DELE recursivamente
+            # Para isso, criaríamos um novo TypeChecker ou reusaríamos este?
+            # O ideal é apenas extrair as assinaturas públicas. 
+            # Mas se ele usa tipos de outros módulos, precisaríamos saber.
+            # Simplificação: Apenas extrai Structs e Funcs declarados nele.
+            
+            for s in program.statements:
+                if isinstance(s, FuncDef):
+                    module_functions[s.name] = s
+                elif isinstance(s, StructDef):
+                    module_structs[s.name] = s
+                # TODO: Suporte a imports transitivos se necessário
+            
+            # Importa os símbolos solicitados
+            if stmt.imports == ["*"]:
+                # Importa tudo
+                for name, func in module_functions.items():
+                    self.functions[name] = func
+                for name, struct in module_structs.items():
+                    self.structs[name] = struct
+            else:
+                # Importa símbolos específicos
+                for symbol in stmt.imports:
+                    if symbol in module_functions:
+                        self.functions[symbol] = module_functions[symbol]
+                    elif symbol in module_structs:
+                        self.structs[symbol] = module_structs[symbol]
+                    else:
+                        raise NoxyTypeError(
+                            f"Símbolo '{symbol}' não encontrado no módulo '{'.'.join(stmt.module_path)}'",
+                            stmt.location
+                        )
+                        
+        except Exception as e:
+            if isinstance(e, NoxyError):
+                raise e
+            raise NoxyTypeError(f"Erro ao importar módulo: {e}", stmt.location)
     
     def check_let(self, stmt: LetStmt):
         """Verifica declaração let."""
@@ -566,8 +652,8 @@ class TypeChecker:
         return types_equal(expected, actual)
 
 
-def check_types(program: Program):
+def check_types(program: Program, base_path: str = "."):
     """Função auxiliar para verificar tipos."""
     checker = TypeChecker()
-    checker.check_program(program)
+    checker.check_program(program, base_path)
 

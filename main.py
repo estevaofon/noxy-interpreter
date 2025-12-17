@@ -56,7 +56,7 @@ def run_source(source: str, filename: str = "<stdin>", typecheck: bool = True, d
         if typecheck:
             if debug:
                 print("=== Type Checking ===")
-            check_types(program)
+            check_types(program, base_path=base_path)
             if debug:
                 print("  OK")
                 print()
