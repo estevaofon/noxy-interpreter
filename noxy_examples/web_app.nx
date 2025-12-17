@@ -1,10 +1,10 @@
 use json_parser select *
 
 // ============================================
-// SIMULAÇÃO DE WEB APP EM NOXY
+// NOXY WEB APP - API REST
 // ============================================
 
-// Redefinindo constantes de tipo (pois globals não são importados)
+// Constantes de tipo JSON
 global TYPE_NULL: int = 0
 global TYPE_BOOL: int = 1
 global TYPE_NUMBER: int = 2
@@ -13,29 +13,26 @@ global TYPE_ARRAY: int = 4
 global TYPE_OBJECT: int = 5
 
 // ============================================
-// Funções de Auxílio para Extração de Dados
+// Funções de Auxílio para Extração de Dados JSON
 // ============================================
 
-// Extrai valor string de uma chave
 func get_string(node: ref JsonNode, key: string) -> string
     if node == null then return "" end
     if node.type != TYPE_OBJECT then return "" end
     
-    // Como a lista encadeada funciona: node.child aponta para o primeiro elemento
     let current: ref JsonNode = node.child
     while current != null do
         if current.key == key then
             if current.type == TYPE_STRING then
                 return current.string_val
             end
-            return "" // Achou a chave mas tipo errado
+            return ""
         end
         current = current.next
     end
     return ""
 end
 
-// Extrai sub-objeto de uma chave
 func get_object(node: ref JsonNode, key: string) -> ref JsonNode
     if node == null then return null end
     if node.type != TYPE_OBJECT then return null end
@@ -53,7 +50,6 @@ func get_object(node: ref JsonNode, key: string) -> ref JsonNode
     return null
 end
 
-// Extrai valor inteiro de uma chave (convertendo float -> int)
 func get_int(node: ref JsonNode, key: string) -> int
     if node == null then return 0 end
     if node.type != TYPE_OBJECT then return 0 end
@@ -72,47 +68,95 @@ func get_int(node: ref JsonNode, key: string) -> int
 end
 
 // ============================================
-// Lógica de Negócio (Controllers)
+// HTTP Response Struct
 // ============================================
 
-func handle_users_post(requestBody: ref JsonNode) -> void
+struct Response
+    status: int
+    content_type: string
+    body: string
+end
+
+// Helper functions para criar responses
+func json_response(status: int, body: string) -> Response
+    return Response(status, "application/json", body)
+end
+
+func error_response(status: int, message: string) -> Response
+    let body: string = "{\"error\": \"" + message + "\"}"
+    return Response(status, "application/json", body)
+end
+
+// ============================================
+// Modelo de Dados - User (Lista Encadeada)
+// ============================================
+
+struct User
+    id: int
+    name: string
+    age: int
+    next: ref User
+end
+
+// Armazenamento em memória (lista encadeada)
+global users_head: ref User = null
+global user_count: int = 0
+
+// ============================================
+// Controllers - Retornam Response
+// ============================================
+
+func handle_users_post(requestBody: ref JsonNode) -> Response
     let name: string = get_string(requestBody, "name")
     let age: int = get_int(requestBody, "age")
     
     if (strlen(name) == 0) | (age == 0) then
-        print("HTTP/1.1 400 Bad Request")
-        print("Content-Type: application/json")
-        print("")
-        print("{\"error\": \"Campos 'name' e 'age' obrigatorios\"}")
-        return
+        return error_response(400, "Campos 'name' e 'age' obrigatorios")
     end
     
-    // Simula criação no banco
-    print(f"LOG: Criando usuario {name}, {age} anos...")
+    // Cria novo usuário e insere no início da lista
+    let new_id: int = user_count + 1
+    let new_user: ref User = User(new_id, name, age, users_head)
+    users_head = new_user
+    user_count = user_count + 1
     
-    print("HTTP/1.1 201 Created")
-    print("Content-Type: application/json")
-    print("")
-    print("{\"status\": \"created\", \"id\": 101, \"link\": \"/users/101\"}")
+    print(f"LOG: Usuario criado - ID={new_id}, name={name}, age={age}")
+    
+    let body: string = "{\"status\": \"created\", \"id\": " + to_str(new_id) + ", \"link\": \"/users/" + to_str(new_id) + "\"}"
+    return json_response(201, body)
 end
 
-func handle_users_get() -> void
-    print("HTTP/1.1 200 OK")
-    print("Content-Type: application/json")
-    print("")
-    // Retorna uma lista de usuários hardcoded como exemplo
-    print("[{\"id\": 1, \"name\": \"Admin\"}, {\"id\": 2, \"name\": \"User\"}]")
+func handle_users_get() -> Response
+    // Monta JSON array iterando a lista encadeada
+    let result: string = "["
+    let current: ref User = users_head
+    let first: int = 1
+    while current != null do
+        if first == 0 then
+            result = result + ", "
+        end
+        first = 0
+        let user_json: string = "{\"id\": " + to_str(current.id) + ", \"name\": \"" + current.name + "\", \"age\": " + to_str(current.age) + "}"
+        result = result + user_json
+        current = current.next
+    end
+    result = result + "]"
+    
+    return json_response(200, result)
 end
 
-func handle_request(raw_json: string) -> void
+// ============================================
+// Router Principal
+// ============================================
+
+func handle_request(raw_json: string) -> Response
     print(f"Servidor recebeu raw: {raw_json}")
     
     let root: ref JsonNode = json_parse(raw_json)
     
-    // Assume formato padrão de request interna: { "method": "...", "path": "...", "body": ... }
     let method: string = get_string(root, "method")
     let path: string = get_string(root, "path")
-    let body: ref JsonNode = get_object(root, "body") // Pode ser null se não tiver body
+    let body: ref JsonNode = get_object(root, "body")
     
     print(f"Processando: {method} {path}")
     
@@ -120,47 +164,18 @@ func handle_request(raw_json: string) -> void
     if path == "/users" then
         if method == "POST" then
             if body == null then
-                print("HTTP/1.1 400 Bad Request")
-                print("")
-                print("{\"error\": \"Body ausente\"}")
+                return error_response(400, "Body ausente")
             else
-                handle_users_post(body)
+                return handle_users_post(body)
             end
         else
             if method == "GET" then
-                handle_users_get()
+                return handle_users_get()
             else
-                print("HTTP/1.1 405 Method Not Allowed")
+                return error_response(405, "Method Not Allowed")
             end
         end
     else
-        print("HTTP/1.1 404 Not Found")
-        print("Content-Type: application/json")
-        print("")
-        print("{\"error\": \"Endpoint nao encontrado\"}")
+        return error_response(404, "Endpoint nao encontrado")
     end
 end
-
-// ============================================
-// Entry Point (Simulação)
-// ============================================
-
-print("=== Iniciando Noxy Web Server ===")
-
-// Simulação 1: POST /users
-let request1: string = "{\"method\": \"POST\", \"path\": \"/users\", \"body\": {\"name\": \"Maria\", \"age\": 30}}"
-print(f"--- Request 1 ---")
-handle_request(request1)
-print("")
-
-// Simulação 2: GET /users
-let request2: string = "{\"method\": \"GET\", \"path\": \"/users\", \"body\": null}"
-print(f"--- Request 2 ---")
-handle_request(request2)
-print("")
-
-// Simulação 3: 404
-let request3: string = "{\"method\": \"GET\", \"path\": \"/admin\", \"body\": null}"
-print(f"--- Request 3 ---")
-handle_request(request3)
-print("")
