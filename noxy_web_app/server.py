@@ -2,8 +2,11 @@ import sys
 from pathlib import Path
 from flask import Flask, request, Response
 
+# Add parent directory to sys.path
+sys.path.append(str(Path(__file__).parent.parent))
+
 # Add current directory to sys.path to import interpreter modules
-sys.path.append(str(Path(__file__).parent))
+#sys.path.append(str(Path(__file__).parent))
 
 from lexer import tokenize
 from parser import Parser
@@ -34,10 +37,11 @@ noxy_builtins.BUILTINS["print"] = custom_print
 
 def init_interpreter():
     global interpreter
-    interpreter = Interpreter(base_path="noxy_examples")
+    app_dir = Path(__file__).parent
+    interpreter = Interpreter(base_path=str(app_dir))
     
     # Load the web app source
-    filepath = Path("noxy_examples/web_app.nx")
+    filepath = app_dir / "app.nx"
     print(f"Loading {filepath}...")
     source = filepath.read_text(encoding="utf-8")
     
