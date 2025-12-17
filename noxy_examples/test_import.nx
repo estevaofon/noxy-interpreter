@@ -12,4 +12,3 @@ print(f"multiply({a}, {b}) = {multiply(a, b)}")
 print(f"factorial(6) = {factorial(6)}")
 
 print("Import funcionando!")
-
