@@ -555,10 +555,9 @@ class Parser:
                 while self.match(TokenType.COMMA):
                     imports.append(self.consume(TokenType.IDENTIFIER, "Nome do símbolo esperado").value)
         else:
-            # Se não tem select, importa o nome do módulo (ex: use io -> import io)
-            # Assume que o módulo exporta um símbolo com o mesmo nome
-            module_name = module_path[-1]
-            imports = [module_name]
+            # Se não tem select, indica importação de módulo inteiro (namespace + structs)
+            imports = None
+            module_name = module_path[-1] # Still useful if we needed it, but interpreter will handle
         
         return UseStmt(module_path, imports, loc)
     

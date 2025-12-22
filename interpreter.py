@@ -256,7 +256,37 @@ class Interpreter:
                 module_globals[s.name] = s
         
         # Importa os símbolos solicitados
-        if stmt.imports == ["*"]:
+        # Importa os símbolos solicitados
+        if stmt.imports is None:
+            # Importação de módulo inteiro (use io)
+            # Estratégia: Importa struct de namespace (se houver, ex: io) e TODOS os structs.
+            # NÃO importa funções (para evitar poluição e conflitos).
+            
+            # 1. Tenta importar global com mesmo nome do módulo (namespace)
+            module_name = stmt.module_path[-1]
+            if module_name in module_globals:
+                glob = module_globals[module_name]
+                # Lazy evaluation para global
+                try:
+                    # Precisamos avaliar no contexto do módulo
+                    prev_env = self.current_env
+                    self.current_env = self.global_env.new_child()
+                    # Define tudo do módulo temporariamente para o initializer rodar
+                    for name, func in module_functions.items():
+                        self.current_env.define_function(func)
+                    for name, struct in module_structs.items():
+                        self.current_env.define_struct(struct)
+                    
+                    val = self.evaluate(glob.initializer)
+                    self.global_env.define(module_name, glob.var_type, val, is_global=True)
+                finally:
+                    self.current_env = prev_env
+
+            # 2. Importa TODOS os structs
+            for name, struct in module_structs.items():
+                self.global_env.define_struct(struct)
+                
+        elif stmt.imports == ["*"]:
             # Importa tudo
             for name, func in module_functions.items():
                 self.global_env.define_function(func)

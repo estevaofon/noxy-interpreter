@@ -343,7 +343,7 @@ class StructDef(Stmt):
 class UseStmt(Stmt):
     """Import de módulo: use module select func1, func2."""
     module_path: list[str]  # ["utils", "math"]
-    imports: list[str]  # ["add", "multiply"] ou ["*"]
+    imports: Optional[list[str]]  # ["add", "multiply"], ["*"] ou None (module import)
     location: Optional[SourceLocation] = field(default=None, compare=False)
 
 

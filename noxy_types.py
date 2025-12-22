@@ -195,9 +195,23 @@ class TypeChecker:
                 # TODO: Suporte a imports transitivos se necessário
             
             # Importa os símbolos solicitados
-            if stmt.imports == ["*"]:
+            if stmt.imports is None:
+                # Importação de módulo inteiro (use io)
+                # 1. Tenta importar global com mesmo nome do módulo (namespace)
+                module_name = stmt.module_path[-1]
+                if module_name in module_globals:
+                    glob = module_globals[module_name]
+                    # Define tipo da variável global no escopo atual
+                    self.define_var(module_name, glob.var_type)
+                
+                # 2. Importa TODOS os structs
+                for name, struct in module_structs.items():
+                    self.structs[name] = struct
+            
+            elif stmt.imports == ["*"]:
                 # Importa tudo
                 for name, func in module_functions.items():
+
                     self.functions[name] = func
                 for name, struct in module_structs.items():
                     self.structs[name] = struct
