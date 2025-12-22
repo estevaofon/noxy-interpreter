@@ -38,6 +38,7 @@ func should_ignore(s: string) -> bool
     if s == "simple_server.nx" then return true end
     if s == "web_app.nx" then return true end
     if s == "http_server_basic.nx" then return true end
+    if s == "http_server_docs.nx" then return true end
     
     return false
 end
