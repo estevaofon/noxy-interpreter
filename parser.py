@@ -404,8 +404,9 @@ class Parser:
         name = self.consume(TokenType.IDENTIFIER, "Nome da variável esperado").value
         self.consume(TokenType.COLON, "':' esperado")
         var_type = self.parse_type()
-        self.consume(TokenType.ASSIGN, "'=' esperado")
-        initializer = self.parse_expression()
+        initializer = None
+        if self.match(TokenType.ASSIGN):
+            initializer = self.parse_expression()
         return LetStmt(name, var_type, initializer, loc)
     
     def parse_global_stmt(self, loc: SourceLocation) -> GlobalStmt:
@@ -583,6 +584,7 @@ class Parser:
         while not self.is_at_end():
             stmt = self.parse_statement()
             if stmt:
+                # print(f"DEBUG(Parser): Parsed {type(stmt).__name__}")
                 statements.append(stmt)
         
         return Program(statements)

@@ -225,26 +225,27 @@ class TypeChecker:
     
     def check_let(self, stmt: LetStmt):
         """Verifica declaração let."""
-        init_type = self.check_expression(stmt.initializer)
-        
-        # Arrays têm regras especiais
-        if isinstance(stmt.var_type, ArrayType):
-            if isinstance(init_type, ArrayType):
-                if not types_equal(stmt.var_type.element_type, init_type.element_type):
-                    raise NoxyTypeError(
-                        f"Tipo do elemento do array não corresponde: "
-                        f"esperado '{stmt.var_type.element_type}', "
-                        f"obtido '{init_type.element_type}'",
-                        stmt.location
-                    )
-            # zeros() retorna int[]
-        elif not self.types_compatible(stmt.var_type, init_type):
-            raise NoxyTypeError(
-                f"Tipo do valor inicial não corresponde ao tipo declarado: "
-                f"esperado '{type_to_str(stmt.var_type)}', "
-                f"obtido '{type_to_str(init_type)}'",
-                stmt.location
-            )
+        if stmt.initializer:
+            init_type = self.check_expression(stmt.initializer)
+            
+            # Arrays têm regras especiais
+            if isinstance(stmt.var_type, ArrayType):
+                if isinstance(init_type, ArrayType):
+                    if not types_equal(stmt.var_type.element_type, init_type.element_type):
+                        raise NoxyTypeError(
+                            f"Tipo do elemento do array não corresponde: "
+                            f"esperado '{stmt.var_type.element_type}', "
+                            f"obtido '{init_type.element_type}'",
+                            stmt.location
+                        )
+                # zeros() retorna int[]
+            elif not self.types_compatible(stmt.var_type, init_type):
+                raise NoxyTypeError(
+                    f"Tipo do valor inicial não corresponde ao tipo declarado: "
+                    f"esperado '{type_to_str(stmt.var_type)}', "
+                    f"obtido '{type_to_str(init_type)}'",
+                    stmt.location
+                )
         
         self.define_var(stmt.name, stmt.var_type)
     

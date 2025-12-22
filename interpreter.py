@@ -54,6 +54,45 @@ class Interpreter:
             if not isinstance(stmt, (StructDef, FuncDef, UseStmt)):
                 self.execute(stmt)
     
+    def get_default_value(self, type_node: NoxyType) -> Any:
+        """Retorna valor padrão para um tipo."""
+        if isinstance(type_node, PrimitiveType):
+            if type_node.name == "int": return 0
+            if type_node.name == "float": return 0.0
+            if type_node.name == "string": return ""
+            if type_node.name == "str": return ""
+            if type_node.name == "bool": return False
+            if type_node.name == "bytes": return b""
+            return None
+        
+        if isinstance(type_node, ArrayType):
+            if type_node.size is not None:
+                elements = []
+                for _ in range(type_node.size):
+                     val = self.get_default_value(type_node.element_type)
+                     elements.append(val)
+                return NoxyArray(elements, type_node.element_type)
+            return NoxyArray([], type_node.element_type)
+            
+        if isinstance(type_node, StructType):
+            struct_def = self.current_env.get_struct(type_node.name)
+            # Se struct não encontrado (ex: forward decl?), retorna None ou erro?
+            # Vamos arriscar erro explícito ou None
+            if not struct_def:
+                 # Pode ser importado? Global env deve ter
+                 struct_def = self.global_env.get_struct(type_node.name)
+            
+            if struct_def:
+                fields = {}
+                for field in struct_def.fields:
+                    fields[field.name] = self.get_default_value(field.field_type)
+                return NoxyStruct(type_node.name, fields)
+            
+            # Se não achou struct, não podemos instanciar -> Erro
+            raise NoxyRuntimeError(f"Struct '{type_node.name}' não encontrado para inicialização padrão")
+            
+        return None
+
     def execute(self, stmt: Stmt):
         """Executa um statement."""
         if isinstance(stmt, LetStmt):
@@ -85,7 +124,10 @@ class Interpreter:
     
     def execute_let(self, stmt: LetStmt):
         """Executa declaração let."""
-        value = self.evaluate(stmt.initializer)
+        if stmt.initializer:
+            value = self.evaluate(stmt.initializer)
+        else:
+            value = self.get_default_value(stmt.var_type)
         self.current_env.define(stmt.name, stmt.var_type, value)
     
     def execute_global(self, stmt: GlobalStmt):
@@ -113,6 +155,10 @@ class Interpreter:
             if isinstance(obj, list):
                 if index < 0 or index >= len(obj):
                     raise NoxyIndexError(f"Índice {index} fora dos limites")
+                obj[index] = value
+            elif isinstance(obj, NoxyArray):
+                if index < 0 or index >= len(obj):
+                     raise NoxyIndexError(f"Índice {index} fora dos limites")
                 obj[index] = value
             elif isinstance(obj, str):
                 raise NoxyRuntimeError("Strings são imutáveis")
@@ -565,7 +611,7 @@ class Interpreter:
         while isinstance(obj, NoxyRef):
             obj = obj.get_value()
         
-        if isinstance(obj, list):
+        if isinstance(obj, list) or isinstance(obj, NoxyArray):
             if index < 0 or index >= len(obj):
                 raise NoxyIndexError(f"Índice {index} fora dos limites [0, {len(obj)})")
             return obj[index]

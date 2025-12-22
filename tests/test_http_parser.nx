@@ -1,0 +1,199 @@
+use http_parser select *
+use io select *
+use sys select *
+
+print("=== Testing HTTP Parser ===")
+
+let tests_passed: int = 0
+let tests_failed: int = 0
+
+// Helper simulação de asserts
+func assert_true(cond: bool, msg: string) -> bool
+    if cond then
+        return true
+    else
+        print(f"FAIL: {msg}")
+        return false
+    end
+end
+
+func assert_eq_str(a: string, b: string, msg: string) -> bool
+    if a == b then
+        return true
+    else
+        print(f"FAIL: {msg} (Expected '{b}', got '{a}')")
+        return false
+    end
+end
+
+func assert_eq_int(a: int, b: int, msg: string) -> bool
+    if a == b then
+        return true
+    else
+        print(f"FAIL: {msg} (Expected {b}, got {a})")
+        return false
+    end
+end
+
+// ===== TEST 1: Parse GET Request =====
+func test_parse_get_request() -> bool
+    let raw: string = "GET /api/users?id=123 HTTP/1.1\r\n"
+    raw = raw + "Host: example.com\r\n"
+    raw = raw + "User-Agent: Test/1.0\r\n"
+    raw = raw + "\r\n"
+    
+    let raw_bytes: bytes = to_bytes(raw)
+    let req: HttpRequest = parse_request(raw_bytes, length(raw_bytes))
+    
+    let ok: bool = true
+    ok = ok & assert_eq_str(req.method, "GET", "Method")
+    ok = ok & assert_eq_str(req.path, "/api/users", "Path")
+    ok = ok & assert_eq_str(req.query, "id=123", "Query")
+    ok = ok & assert_eq_str(req.version, "HTTP/1.1", "Version")
+    ok = ok & assert_eq_int(req.header_count, 2, "Header Count")
+    
+    return ok
+end
+
+// ===== TEST 2: Parse POST Request with Body =====
+func test_parse_post_request() -> bool
+    let raw: string = "POST /api/data HTTP/1.1\r\n"
+    raw = raw + "Content-Type: application/json\r\n"
+    raw = raw + "Content-Length: 15\r\n"
+    raw = raw + "\r\n"
+    raw = raw + "{\"test\":\"data\"}"
+    
+    let raw_bytes: bytes = to_bytes(raw)
+    let req: HttpRequest = parse_request(raw_bytes, length(raw_bytes))
+    
+    let ok: bool = true
+    ok = ok & assert_eq_str(req.method, "POST", "Method")
+    ok = ok & assert_eq_str(req.path, "/api/data", "Path")
+    ok = ok & assert_eq_str(le_body_str(req.body), "{\"test\":\"data\"}", "Body")
+    
+    return ok
+end
+
+func le_body_str(b: bytes) -> string
+    return to_str(b)
+end
+
+// ===== TEST 3: Parse HTTP Response =====
+func test_parse_response() -> bool
+    let raw: string = "HTTP/1.1 200 OK\r\n"
+    raw = raw + "Content-Type: text/plain\r\n"
+    raw = raw + "Content-Length: 7\r\n"
+    raw = raw + "\r\n"
+    raw = raw + "Success"
+    
+    let raw_bytes: bytes = to_bytes(raw)
+    let resp: HttpResponse = parse_response(raw_bytes, length(raw_bytes))
+    
+    let ok: bool = true
+    ok = ok & assert_eq_str(resp.version, "HTTP/1.1", "Version")
+    ok = ok & assert_eq_int(resp.status_code, 200, "Status Code")
+    ok = ok & assert_eq_str(resp.status_text, "OK", "Status Text")
+    ok = ok & assert_eq_str(to_str(resp.body), "Success", "Body")
+    
+    return ok
+end
+
+// ===== TEST 4: Parse URL =====
+func test_parse_url() -> bool
+    let url1: HttpUrl = parse_url("http://example.com/path")
+    let ok: bool = true
+    ok = ok & assert_eq_str(url1.scheme, "http", "Url1 Scheme")
+    ok = ok & assert_eq_str(url1.host, "example.com", "Url1 Host")
+    ok = ok & assert_eq_int(url1.port, 80, "Url1 Port")
+    ok = ok & assert_eq_str(url1.path, "/path", "Url1 Path")
+    
+    let url2: HttpUrl = parse_url("https://api.example.com:8443/v1/users?id=123#top")
+    ok = ok & assert_eq_str(url2.scheme, "https", "Url2 Scheme")
+    ok = ok & assert_eq_str(url2.host, "api.example.com", "Url2 Host")
+    ok = ok & assert_eq_int(url2.port, 8443, "Url2 Port")
+    ok = ok & assert_eq_str(url2.path, "/v1/users", "Url2 Path")
+    ok = ok & assert_eq_str(url2.query, "id=123", "Url2 Query")
+    ok = ok & assert_eq_str(url2.fragment, "top", "Url2 Fragment")
+    
+    return ok
+end
+
+// ===== TEST 5: Build Request =====
+func test_build_request() -> bool
+    let headers: string[64]
+    headers[0] = "Host: example.com"
+    headers[1] = "Content-Type: application/json"
+    
+    let body: bytes = b"{\"key\":\"value\"}"
+    
+    let request_bytes: bytes = build_request("POST", "/api/data", headers, 2, body)
+    let request_str: string = to_str(request_bytes)
+    
+    let ok: bool = true
+    // Verificações simples de contains
+    // Como não temos contains string fácil (fizemos helper em http_server, mas nao public)
+    // Vamos confiar se não crashar e se o tamanho for razoável ou match exato?
+    
+    // Vamos fazer match exato do prefixo?
+    // "POST /api/data HTTP/1.1\r\nHost: example.com\r\nContent-Type: application/json\r\n\r\n{\"key\":\"value\"}"
+    // A ordem dos headers na implementação é preservada (foi construida em loop)
+    let expected: string = "POST /api/data HTTP/1.1\r\nHost: example.com\r\nContent-Type: application/json\r\n\r\n{\"key\":\"value\"}"
+    
+    ok = ok & assert_eq_str(request_str, expected, "Build Request Exact Match")
+    
+    return ok
+end
+
+
+// ===== RUN TESTS =====
+
+if test_parse_get_request() then
+    print("✓ test_parse_get_request")
+    tests_passed = tests_passed + 1
+else
+    print("✗ test_parse_get_request")
+    tests_failed = tests_failed + 1
+end
+
+if test_parse_post_request() then
+    print("✓ test_parse_post_request")
+    tests_passed = tests_passed + 1
+else
+    print("✗ test_parse_post_request")
+    tests_failed = tests_failed + 1
+end
+
+if test_parse_response() then
+    print("✓ test_parse_response")
+    tests_passed = tests_passed + 1
+else
+    print("✗ test_parse_response")
+    tests_failed = tests_failed + 1
+end
+
+if test_parse_url() then
+    print("✓ test_parse_url")
+    tests_passed = tests_passed + 1
+else
+    print("✗ test_parse_url")
+    tests_failed = tests_failed + 1
+end
+
+if test_build_request() then
+    print("✓ test_build_request")
+    tests_passed = tests_passed + 1
+else
+    print("✗ test_build_request")
+    tests_failed = tests_failed + 1
+end
+
+print("")
+print(f"Tests passed: {tests_passed}")
+print(f"Tests failed: {tests_failed}")
+
+if tests_failed == 0 then
+    print("✓ All tests passed!")
+else
+    print("✗ Some tests failed")
+    exit(1)
+end

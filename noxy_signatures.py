@@ -14,6 +14,9 @@ BUILTIN_SIGNATURES = {
     "to_bytes": (PrimitiveType("bytes"), [Any]),
     "strlen": (PrimitiveType("int"), [PrimitiveType("string")]),
     "ord": (PrimitiveType("int"), [PrimitiveType("string")]),
+    "ord": (PrimitiveType("int"), [PrimitiveType("string")]),
+    "substring": (PrimitiveType("string"), [PrimitiveType("string"), PrimitiveType("int"), PrimitiveType("int")]),
+    "slice": (PrimitiveType("bytes"), [PrimitiveType("bytes"), PrimitiveType("int"), PrimitiveType("int")]),
     "length": (PrimitiveType("int"), [Any]),
     "zeros": (ArrayType(PrimitiveType("int"), None), [PrimitiveType("int")]),
     

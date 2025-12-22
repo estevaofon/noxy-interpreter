@@ -98,6 +98,24 @@ def noxy_ord(char: str) -> int:
     return ord(char)
 
 
+def noxy_substring(s: str, start: int, end: int) -> str:
+    """Retorna substring."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError(f"substring() espera string, recebeu {type(s).__name__}")
+    if not isinstance(start, int) or not isinstance(end, int):
+        raise NoxyRuntimeError("substring() espera start/end inteiros")
+    # Limita ranges? Python slice trata isso gracefully
+    # Mas noxy specs talvez queira exceção? Vamos usar python slice
+    return s[start:end]
+
+
+def noxy_slice(data: bytes, start: int, end: int) -> bytes:
+    """Retorna fatia de bytes."""
+    if not isinstance(data, bytes):
+        raise NoxyRuntimeError(f"slice() espera bytes, recebeu {type(data).__name__}")
+    if not isinstance(start, int) or not isinstance(end, int):
+        raise NoxyRuntimeError("slice() espera start/end inteiros")
+    return data[start:end]
 def noxy_length(obj: Any) -> int:
     """Retorna o tamanho de uma string, bytes, lista ou array."""
     if isinstance(obj, str) or isinstance(obj, list) or isinstance(obj, tuple) or isinstance(obj, bytes):
@@ -176,8 +194,7 @@ def value_to_string(value: Any) -> str:
         return value
     
     if isinstance(value, bytes):
-        # Representação b'...'
-        return str(value)
+        return _decode_output(value)
     
     if isinstance(value, list):
         elements = ", ".join(value_to_string(e) for e in value)
@@ -821,6 +838,10 @@ BUILTINS: dict[str, Callable] = {
     "to_bytes": noxy_to_bytes,
     "strlen": noxy_strlen,
     "ord": noxy_ord,
+    "strlen": noxy_strlen,
+    "ord": noxy_ord,
+    "substring": noxy_substring,
+    "slice": noxy_slice,
     "length": noxy_length,
     "zeros": noxy_zeros,
     # IO
