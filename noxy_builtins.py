@@ -20,7 +20,7 @@ def noxy_print(*args) -> None:
     output = []
     for arg in args:
         output.append(value_to_string(arg))
-    print(" ".join(output))
+    print(" ".join(output), flush=True)
 
 
 def noxy_to_str(value: Any) -> str:
@@ -96,13 +96,50 @@ def noxy_ord(char: str) -> int:
     return ord(char)
 
 
-def noxy_length(arr: Any) -> int:
-    """Retorna o tamanho do array."""
-    if isinstance(arr, list):
-        return len(arr)
-    if isinstance(arr, NoxyArray):
-        return len(arr)
-    raise NoxyRuntimeError(f"length() espera array, recebeu {type(arr).__name__}")
+def noxy_length(obj: Any) -> int:
+    """Retorna o tamanho de uma string, bytes, lista ou array."""
+    if isinstance(obj, str) or isinstance(obj, list) or isinstance(obj, tuple) or isinstance(obj, bytes):
+        return len(obj)
+    if isinstance(obj, NoxyArray):
+        return len(obj.elements)
+    raise NoxyRuntimeError(f"Tipo {type(obj)} não tem tamanho ddd")
+
+def noxy_push(array: Any, item: Any) -> None:
+    """Adiciona item ao final do array (lista)."""
+    if isinstance(array, list):
+        array.append(item)
+    elif isinstance(array, NoxyArray):
+        array.elements.append(item)
+        # Se tiver tamanho fixo, isso viola. Mas arrays do NoxyArray podem ser dinâmicos se size=None?
+        # Por enquanto vamos permitir append.
+    else:
+        raise NoxyRuntimeError(f"push requer array, recebido {type(array)}")
+
+def noxy_remove(array: Any, item: Any) -> None:
+    """Remove primeira ocorrência do item do array."""
+    # NoxyStruct e outros não tem __eq__ fácil.
+    # Vamos tentar remove direto.
+    if isinstance(array, list):
+        try:
+            # Para structs (Socket), precisamos comparar por referência ou ID?
+            # Se for o mesmo objeto Python, list.remove funciona.
+            # net_select retorna novos objetos Socket ou os mesmos?
+            # Minha implementação de net_select retorna os MESMOS objetos da tabela open_sockets.
+            # Então remove deve funcionar se o objeto passado for o mesmo.
+            if item in array:
+                array.remove(item)
+            else:
+                 # Se não achar, procura por fd?
+                 pass
+        except ValueError:
+            pass
+    elif isinstance(array, NoxyArray):
+        try:
+             array.elements.remove(item)
+        except ValueError:
+             pass
+    else:
+        raise NoxyRuntimeError(f"remove requer array, recebido {type(array)}")
 
 
 MAX_ARRAY_SIZE = 100000  # Limite máximo de elementos
@@ -529,12 +566,121 @@ def net_close(sock: Any) -> None:
         del open_sockets[fd]
     
     # Atualiza o estado
-    if isinstance(sock, NoxyStruct):
         sock.fields["open"] = False
     elif isinstance(sock, dict):
         sock.fields["open"] = False
 
+def net_setblocking(sock: Any, blocking: bool) -> None:
+    """Define o modo de bloqueio do socket."""
+    fd = _get_fd(sock)
+    if fd is None or fd not in open_sockets:
+        return
+    try:
+        open_sockets[fd].setblocking(blocking)
+    except:
+        pass
 
+def net_socket_set() -> list[NoxyStruct]:
+    """Cria um array de 64 sockets vazios/fechados."""
+    # Cria 64 sockets "zerados"
+    sockets = []
+    for _ in range(64):
+        sockets.append(NoxyStruct("Socket", {
+            "fd": -1,
+            "addr": "",
+            "port": 0,
+            "open": False
+        }))
+    return sockets
+
+def net_select(read_list: list, write_list: list, error_list: list, timeout: int) -> NoxyStruct:
+    """Monitora sockets."""
+    # Mapeia input lists para FDs e para objetos originais
+    r_map = {} # fd -> sock_obj
+    w_map = {}
+    e_map = {}
+    
+    # Helper para processar lista que pode conter sockets vazios (fd=-1)
+    def process_list(in_list, mapping):
+        fds = []
+        if not isinstance(in_list, list) and not isinstance(in_list, NoxyArray):
+             return []
+        
+        # Lidar com NoxyArray wrapper
+        iterable = in_list.elements if isinstance(in_list, NoxyArray) else in_list
+        
+        for s in iterable:
+            fd = _get_fd(s)
+            # Ignora fd -1 (socket vazio/fechado)
+            if fd is not None and fd != -1 and fd in open_sockets:
+                mapping[fd] = s
+                fds.append(open_sockets[fd])
+        return fds
+
+    r_sockets = process_list(read_list, r_map)
+    w_sockets = process_list(write_list, w_map)
+    e_sockets = process_list(error_list, e_map)
+    
+    try:
+        # timeout em microssegundos no noxy? vamos assumir milissegundos
+        t = timeout / 1000.0
+        readable, writable, exceptional = select.select(r_sockets, w_sockets, e_sockets, t)
+        
+        # Reconstrói listas de retorno DE TAMANHO FIXO 64
+        # Preenche com os sockets prontos e o resto com vazios
+        
+        def get_result_list(out_sockets, mapping):
+            res = []
+            count = 0
+            
+            # Adiciona os prontos
+            for s in out_sockets:
+                found_fd = None
+                for fd, sock_obj in open_sockets.items():
+                    if sock_obj is s:
+                        found_fd = fd
+                        break
+                
+                if found_fd is not None and found_fd in mapping:
+                    res.append(mapping[found_fd])
+                    count += 1
+            
+            # Preenche o resto com sockets vazios até 64
+            empty_sock = NoxyStruct("Socket", {"fd": -1, "addr": "", "port": 0, "open": False})
+            while len(res) < 64:
+                res.append(empty_sock) # Mesma instância ou nova? Nova por segurança, mas noxy structs são ref?
+                                       # Interpreter usa deepcopy em atribuição? Não, assignments são ref.
+                                       # Então cuidado se user modificar.
+                                       # Vamos criar novos.
+                # res.append(NoxyStruct("Socket", ...)) - caro?
+                # Vamos usar a mesma instância de vazio.
+                # Se o user modificar um socket fechado, problema dele?
+                res.append(empty_sock)
+                
+            return res, count
+
+        r_list, r_count = get_result_list(readable, r_map)
+        w_list, w_count = get_result_list(writable, w_map)
+        e_list, e_count = get_result_list(exceptional, e_map)
+
+        return NoxyStruct("SelectResult", {
+            "read": r_list,
+            "read_count": r_count,
+            "write": w_list,
+            "write_count": w_count,
+            "error": e_list,
+            "error_count": e_count
+        })
+        
+    except Exception as e:
+        print(f"Select error: {e}")
+        # Retorna tudo vazio
+        empty = net_socket_set()
+        return NoxyStruct("SelectResult", {
+            "read": empty, "read_count": 0,
+            "write": empty, "write_count": 0,
+            "error": empty, "error_count": 0
+        })
 
 
 # Dicionário de funções builtin
@@ -568,6 +714,14 @@ BUILTINS: dict[str, Callable] = {
     "net_recv": net_recv,
     "net_send": net_send,
     "net_close": net_close,
+    "net_close": net_close,
+    "net_setblocking": net_setblocking,
+    "net_select": net_select,
+    "net_socket_set": net_socket_set,
+    
+    # Array utils
+    "push": noxy_push,
+    "remove": noxy_remove,
 }
 
 

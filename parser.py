@@ -216,8 +216,20 @@ class Parser:
         while True:
             if self.match(TokenType.DOT):
                 # Acesso a campo: expr.field
-                field = self.consume(TokenType.IDENTIFIER, "Nome do campo esperado")
-                expr = FieldAccess(expr, field.value, location=field.location)
+                # Permite keywords como nome de campo (ex: net.select, obj.type)
+                if self.check(TokenType.IDENTIFIER):
+                    field = self.consume(TokenType.IDENTIFIER, "Nome do campo esperado")
+                    expr = FieldAccess(expr, field.value, location=field.location)
+                elif self.check(TokenType.SELECT):
+                    # Exceção para 'select'
+                    tok = self.advance()
+                    expr = FieldAccess(expr, "select", location=tok.location)
+                elif self.check(TokenType.TYPE_INT, TokenType.TYPE_FLOAT, TokenType.TYPE_STRING, TokenType.TYPE_BOOL, TokenType.TYPE_BYTES):
+                    # Exceção para tipos primitivos
+                    tok = self.advance()
+                    expr = FieldAccess(expr, tok.value, location=tok.location)
+                else:
+                    raise self.error("Nome do campo esperado")
             elif self.match(TokenType.LBRACKET):
                 # Acesso a índice: expr[index]
                 loc = self.previous.location
@@ -306,6 +318,9 @@ class Parser:
         # Identificador
         if self.match(TokenType.IDENTIFIER):
             return Identifier(self.previous.value, loc)
+            
+        if self.match(TokenType.SELECT):
+            return Identifier("select", loc)
         
         raise self.error(f"Expressão esperada, encontrado '{self.current.value}'")
     
@@ -404,7 +419,15 @@ class Parser:
     
     def parse_func_def(self, loc: SourceLocation) -> FuncDef:
         """Parseia definição de função."""
-        name = self.consume(TokenType.IDENTIFIER, "Nome da função esperado").value
+        # Permite keywords como nome de função (ex: select)
+        if self.check(TokenType.IDENTIFIER):
+             name = self.consume(TokenType.IDENTIFIER, "Nome da função esperado").value
+        elif self.check(TokenType.SELECT):
+             tok = self.advance()
+             name = "select"
+        else:
+             raise self.error("Nome da função esperado")
+             
         self.consume(TokenType.LPAREN, "'(' esperado")
         
         # Parâmetros
