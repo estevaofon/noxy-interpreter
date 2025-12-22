@@ -1,7 +1,7 @@
 // stdlib/http_server.nx - Servidor HTTP Event-Driven
 
 use net select *
-use io select *
+use io
 use http_parser select *
 
 // ============================================
@@ -221,7 +221,7 @@ func serve_file(filepath: string) -> HttpResponse
     // Assumindo io.exists disponível (se não for, open falha)
     // Vamos tentar abrir direto
     
-    let f: File = open(filepath, "r")
+    let f: File = io.open(filepath, "r")
     // Como verificar se abriu? File tem 'open' ou similar?
     // io.nx geralmente retorna File struct. Se falha, pode dar erro ou retornar file inválido.
     // Vamos assumir que temos como checar ou usar try-catch se Noxy tivesse... 
@@ -234,8 +234,8 @@ func serve_file(filepath: string) -> HttpResponse
     // io.nx original: 
     // func read(f: File) -> IOResult
     
-    let res: IOResult = read(f)
-    close(f)
+    let res: IOResult = io.read(f)
+    io.close(f)
     
     if !res.ok then
         return response_error(404, "File not found or unreadable")

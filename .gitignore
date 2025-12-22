@@ -22,3 +22,4 @@ Dockerfile
 AWS_DEPLOY_GUIDE.md
 .dockerignore
 
+*.db
