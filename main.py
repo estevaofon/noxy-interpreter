@@ -140,6 +140,19 @@ def run_repl():
 
 def main():
     """Ponto de entrada principal."""
+    # Configura encoding para UTF-8 no stdout/stderr (importante para Windows)
+    if sys.stdout.encoding.lower() != 'utf-8':
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except:
+            pass
+            
+    if sys.stderr.encoding.lower() != 'utf-8':
+        try:
+            sys.stderr.reconfigure(encoding='utf-8')
+        except:
+            pass
+
     parser = argparse.ArgumentParser(
         description="Interpretador Noxy - Linguagem de programação estaticamente tipada",
         formatter_class=argparse.RawDescriptionHelpFormatter,

@@ -244,14 +244,31 @@ def format_value(value: Any, format_spec: str = None) -> str:
 # SYS MODULE BUILTINS
 # ============================================================================
 
+def _decode_output(data: bytes) -> str:
+    """Decodifica output de bytes para string tentando várias codificações."""
+    if not data:
+        return ""
+    try:
+        return data.decode('utf-8')
+    except UnicodeDecodeError:
+        try:
+            # Tenta encoding do sistema (cp1252)
+            import locale
+            return data.decode(locale.getpreferredencoding(False))
+        except:
+            # Fallback final
+            return data.decode('utf-8', errors='replace')
+
 def sys_exec(command: str) -> NoxyStruct:
     """Executa comando do sistema - saída vai para terminal."""
     try:
+        # Não forçamos encoding aqui para deixar o sistema decidir
+        # Isso evita crash se o shell usar cp1252
         result = subprocess.run(
             command,
             shell=True,
             capture_output=False,
-            text=True
+            text=False # Permite bytes/padrão
         )
         return NoxyStruct("SysResult", {
             "ok": result.returncode == 0,
@@ -270,18 +287,19 @@ def sys_exec(command: str) -> NoxyStruct:
 def sys_exec_output(command: str) -> NoxyStruct:
     """Executa comando e captura saída."""
     try:
+        # Captura como bytes para decodificar manualmente
         result = subprocess.run(
             command,
             shell=True,
             capture_output=True,
-            text=True,
+            text=False, # Importante: capture bytes!
             timeout=30
         )
         return NoxyStruct("SysResult", {
             "ok": result.returncode == 0,
-            "output": result.stdout,
+            "output": _decode_output(result.stdout),
             "exit_code": result.returncode,
-            "error": result.stderr
+            "error": _decode_output(result.stderr)
         })
     except subprocess.TimeoutExpired:
         return NoxyStruct("SysResult", {
