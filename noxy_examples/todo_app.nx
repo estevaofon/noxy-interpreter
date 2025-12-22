@@ -3,6 +3,9 @@ use http_parser select *
 use net select *
 use io
 use sqlite
+use strings select *
+use json_parser select *
+use json_helpers select *
 
 // ============================================
 // Database Setup
@@ -29,67 +32,6 @@ func init_db() -> void
 end
 
 // ============================================
-// IO / JSON Helpers (Simplified)
-// ============================================
-// Since Noxy doesn't have a JSON parser yet, we do manual parsing for this MVP.
-// Expected formats:
-// POST: {"title": "Buy milk"}
-// PUT: {"id": 1} (Toggles state)
-// DELETE: {"id": 1}
-
-func get_json_string_field(json: string, key: string) -> string
-    // Very naive parser: looks for "key": "value"
-    // Limitations: doesn't handle escaped quotes, nested objects, spaces variability well.
-    let search_key: string = "\"" + key + "\":"
-    let parts: string[2] = split_once(json, search_key)
-    
-    if parts[1] == "" & parts[0] == json then return "" end // Not found
-    
-    // parts[1] starts with "value"..., skip leading quote if any or spaces
-    // Assuming strictly: "key": "value" or "key":"value"
-    
-    let remainder: string = parts[1]
-    
-    // Trim leading whitespace/chars until quote
-    // Since we don't have trim, let's assume standard format from our frontend
-    // Frontend sends: {"title":"..."}
-    
-    // Find first quote
-    let val_parts: string[2] = split_once(remainder, "\"")
-    if val_parts[1] == "" then return "" end // No starting quote
-    
-    // val_parts[1] is value"...
-    let final_parts: string[2] = split_once(val_parts[1], "\"")
-    return final_parts[0]
-end
-
-func get_json_int_field(json: string, key: string) -> int
-    // Looks for "key": 123
-    let search_key: string = "\"" + key + "\":"
-    let parts: string[2] = split_once(json, search_key)
-    
-    if parts[1] == "" & parts[0] == json then return -1 end
-    
-    let remainder: string = parts[1]
-    // Extract number. Find next , or }
-    
-    // Hacky: iterate and build string? restricted functionality.
-    // Let's rely on split_once again.
-    // Try splitting by ,
-    let comma_split: string[2] = split_once(remainder, ",")
-    let val_str: string = comma_split[0]
-    
-    // If no comma, maybe it ends with }
-    let brace_split: string[2] = split_once(val_str, "}")
-    val_str = brace_split[0]
-    
-    // Trim spaces (manual)?
-    // Let's create a helper to parse int properly from " 123 "
-    // to_int() usually handles basic strings.
-    return to_int(val_str)
-end
-
-// ============================================
 // Handlers
 // ============================================
 
@@ -101,36 +43,43 @@ func handle_get_todos() -> HttpResponse
         return response_error(500, "DB Error: " + res.error)
     end
     
-    // Build JSON manually
-    let json: string = "["
+    // Build JSON using strings.join for cleaner code
+    let items: string[100] // Limitation: max 100 items per page/request for now
+    let count: int = 0
+    
     let i: int = 0
     while i < res.row_count do
+        if count >= 100 then break end
+        
         let row: Row = res.rows[i]
         let id: string = row.values[0]
         let title: string = row.values[1]
         let completed: string = row.values[2]
         
-        // Escape title simply?
+        // Escape title? For MVP we assume simple titles, or use a strings.replace if available
+        // Simple escape of quotes
+        let safe_title: string = replace(title, "\"", "\\\"")
         
-        let item: string = "{\"id\": " + id + ", \"title\": \"" + title + "\", \"completed\": " + completed + "}"
-        json = json + item
-        
-        if i < res.row_count - 1 then
-            json = json + ","
-        end
+        let item: string = "{\"id\": " + id + ", \"title\": \"" + safe_title + "\", \"completed\": " + completed + "}"
+        items[count] = item
+        count = count + 1
         
         i = i + 1
     end
-    json = json + "]"
+    
+    let joined: string = join_count(items, ",", count)
+    let json: string = "[" + joined + "]"
     
     return response_json(json)
 end
 
 func handle_add_todo(body: bytes) -> HttpResponse
-    let json: string = to_str(body) // Convert bytes to string (utf-8 assumed)
-    let title: string = get_json_string_field(json, "title")
+    let json_str: string = to_str(body)
+    let node: ref JsonNode = json_parse(json_str)
     
-    if title == "" then
+    let title: string = get_string(node, "title")
+    
+    if is_empty(title) then
         return response_error(400, "Missing title")
     end
     
@@ -147,16 +96,17 @@ func handle_add_todo(body: bytes) -> HttpResponse
 end
 
 func handle_toggle_todo(body: bytes) -> HttpResponse
-    let json: string = to_str(body)
-    let id: int = get_json_int_field(json, "id")
+    let json_str: string = to_str(body)
+    let node: ref JsonNode = json_parse(json_str)
     
-    if id == -1 then
+    if node == null then return response_error(400, "Invalid JSON") end
+    
+    // Check if ID exists (it's an int)
+    if !has_key(node, "id") then
         return response_error(400, "Missing id")
     end
     
-    // First check current status to toggle
-    // Simplified: just set to NOT current. requires query first.
-    // Or SQL: UPDATE todos SET completed = NOT completed ... (sqlite supports this? 1-completed works)
+    let id: int = get_int(node, "id")
     
     let sql: string = "UPDATE todos SET completed = CASE WHEN completed = 0 THEN 1 ELSE 0 END WHERE id = ?"
     let stmt: Statement = sqlite.prepare(db, sql)
@@ -172,12 +122,16 @@ func handle_toggle_todo(body: bytes) -> HttpResponse
 end
 
 func handle_delete_todo(body: bytes) -> HttpResponse
-    let json: string = to_str(body)
-    let id: int = get_json_int_field(json, "id")
+    let json_str: string = to_str(body)
+    let node: ref JsonNode = json_parse(json_str)
     
-    if id == -1 then
+    if node == null then return response_error(400, "Invalid JSON") end
+
+    if !has_key(node, "id") then
         return response_error(400, "Missing id")
     end
+    
+    let id: int = get_int(node, "id")
     
     let stmt: Statement = sqlite.prepare(db, "DELETE FROM todos WHERE id = ?")
     sqlite.bind_int(stmt, 1, id)
@@ -205,8 +159,6 @@ func handle_request(req: HttpRequest) -> HttpResponse
         if req.path == "/api/todos" then
             return handle_get_todos()
         end
-        // Verify if path exists in static (simple check)
-        // serving static files mostly
     end
     
     if req.method == "POST" then
@@ -216,8 +168,6 @@ func handle_request(req: HttpRequest) -> HttpResponse
     end
     
     if req.method == "PUT" then
-        // Avoiding complex path param parsing for now, using body id
-        // Using /api/todos/toggle as endpoint
         if req.path == "/api/todos/toggle" then
             return handle_toggle_todo(req.body)
         end
