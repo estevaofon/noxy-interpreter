@@ -449,6 +449,9 @@ class Parser:
             field = self.parse_struct_field()
             if field:
                 fields.append(field)
+            else:
+                # Se não é campo e não é END (verificado no loop), é erro ou travamento
+                raise self.error(f"Esperado campo de struct ou 'end', encontrado '{self.current.value}'")
             self.skip_newlines()
         
         self.consume(TokenType.END, "'end' esperado")

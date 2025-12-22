@@ -8,7 +8,11 @@ from environment import NoxyStruct, NoxyRef, NoxyArray
 from errors import NoxyRuntimeError
 from ast_nodes import PrimitiveType, ArrayType, StructType, RefType
 import os
+import os
 import shutil
+import socket
+import select
+import time
 
 
 def noxy_print(*args) -> None:
@@ -367,6 +371,172 @@ def _get_fd(file_struct: Any) -> int | None:
     return None
 
 
+# ============================================================================
+# NET MODULE BUILTINS
+# ============================================================================
+
+# Tabela de sockets: fd -> socket object
+open_sockets: dict[int, socket.socket] = {}
+next_sock_fd: int = 1000
+
+def net_listen(host: str, port: int) -> NoxyStruct:
+    """Inicia um servidor TCP."""
+    global next_sock_fd
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((host, port))
+        s.listen(5)
+        s.setblocking(True)
+        
+        fd = next_sock_fd
+        next_sock_fd += 1
+        open_sockets[fd] = s
+        
+        return NoxyStruct("Socket", {
+            "fd": fd,
+            "addr": host,
+            "port": port,
+            "open": True
+        })
+    except Exception as e:
+        # Em caso de erro, retorna socket fechado/inválido? 
+        # Ou raises runtime error?
+        # Noxy philosophy seems to be returning error structs or crashing for now.
+        # Vamos lançar erro para ser mais visível, user pode tratar com try-catch (se tivesse).
+        # Como não tem try-catch, vamos retornar socket com fd -1 e open=False?
+        # É mais seguro.
+        return NoxyStruct("Socket", {
+            "fd": -1,
+            "addr": host,
+            "port": port,
+            "open": False
+        })
+
+def net_accept(server_sock: Any) -> NoxyStruct:
+    """Aceita uma conexão."""
+    global next_sock_fd
+    fd = _get_fd(server_sock)
+    if fd is None or fd not in open_sockets:
+        raise NoxyRuntimeError("Socket inválido ou fechado")
+        
+    s = open_sockets[fd]
+    try:
+        conn, addr = s.accept()
+        conn.setblocking(True)
+        
+        client_fd = next_sock_fd
+        next_sock_fd += 1
+        open_sockets[client_fd] = conn
+        
+        return NoxyStruct("Socket", {
+            "fd": client_fd,
+            "addr": addr[0],
+            "port": addr[1],
+            "open": True
+        })
+    except Exception as e:
+        raise NoxyRuntimeError(f"Erro no accept: {e}")
+
+def net_connect(host: str, port: int) -> NoxyStruct:
+    """Conecta a um servidor."""
+    global next_sock_fd
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((host, port))
+        
+        fd = next_sock_fd
+        next_sock_fd += 1
+        open_sockets[fd] = s
+        
+        return NoxyStruct("Socket", {
+            "fd": fd,
+            "addr": host,
+            "port": port,
+            "open": True
+        })
+    except Exception as e:
+        return NoxyStruct("Socket", {
+            "fd": -1,
+            "addr": host,
+            "port": port,
+            "open": False
+        })
+
+def net_recv(sock: Any, buf_size: int = 4096) -> NoxyStruct:
+    """Recebe dados do socket."""
+    fd = _get_fd(sock)
+    if fd is None or fd not in open_sockets:
+        return NoxyStruct("NetResult", {"ok": False, "data": b"", "count": 0, "error": "Socket fechado"})
+    
+    try:
+        data = open_sockets[fd].recv(buf_size)
+        return NoxyStruct("NetResult", {
+            "ok": True, 
+            "data": data, # retorna bytes
+            "count": len(data),
+            "error": ""
+        })
+    except Exception as e:
+        return NoxyStruct("NetResult", {"ok": False, "data": b"", "count": 0, "error": str(e)})
+
+def net_send(sock: Any, data: Any) -> NoxyStruct:
+    """Envia dados para o socket."""
+    fd = _get_fd(sock)
+    if fd is None or fd not in open_sockets:
+        return NoxyStruct("NetResult", {"ok": False, "data": b"", "bytes": 0, "error": "Socket fechado"})
+    
+    # Converte para bytes se necessário
+    if isinstance(data, str):
+        data_bytes = data.encode('utf-8')
+    elif isinstance(data, bytes):
+        data_bytes = data
+    else:
+        return NoxyStruct("NetResult", {"ok": False, "data": b"", "count": 0, "error": "Tipo de dados inválido para envio"})
+        
+    try:
+        sent = open_sockets[fd].send(data_bytes)
+        return NoxyStruct("NetResult", {
+            "ok": True,
+            "data": b"",
+            "count": sent,
+            "error": ""
+        })
+    except Exception as e:
+        return NoxyStruct("NetResult", {"ok": False, "data": b"", "count": 0, "error": str(e)})
+
+def net_close(sock: Any) -> None:
+    """Fecha o socket."""
+    if not isinstance(sock, NoxyStruct) and not isinstance(sock, dict):
+         return 
+
+    # Suporte a dict (retorno direto) ou NoxyStruct
+    if isinstance(sock, NoxyStruct):
+        fd = sock.fields.get("fd")
+        is_open = sock.fields.get("open")
+    else:
+        fd = sock.get("fd")
+        is_open = sock.get("open")
+
+    if not is_open:
+        return
+
+    if fd in open_sockets:
+        try:
+            open_sockets[fd].close()
+        except:
+            pass
+        del open_sockets[fd]
+    
+    # Atualiza o estado
+    if isinstance(sock, NoxyStruct):
+        sock.fields["open"] = False
+    elif isinstance(sock, dict):
+        sock.fields["open"] = False
+
+
+
+
 # Dicionário de funções builtin
 BUILTINS: dict[str, Callable] = {
     "print": noxy_print,
@@ -391,6 +561,13 @@ BUILTINS: dict[str, Callable] = {
     "io_rename": io_rename,
     "io_mkdir": io_mkdir,
     "io_list_dir": io_list_dir,
+    # Net
+    "net_listen": net_listen,
+    "net_accept": net_accept,
+    "net_connect": net_connect,
+    "net_recv": net_recv,
+    "net_send": net_send,
+    "net_close": net_close,
 }
 
 
