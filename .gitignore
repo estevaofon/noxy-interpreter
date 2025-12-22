@@ -20,4 +20,5 @@ web_static/
 
 Dockerfile
 AWS_DEPLOY_GUIDE.md
+.dockerignore
 

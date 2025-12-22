@@ -530,6 +530,17 @@ class Interpreter:
                 else:
                     raise NoxyRuntimeError(f"Método Net '{method_name}' não suportado")
 
+            # Verifica se é objeto Sqlite
+            if isinstance(obj, NoxyStruct) and obj.type_name == "Sqlite":
+                builtin_name = f"sqlite_{method_name}"
+                if is_builtin(builtin_name):
+                    args = [self.evaluate(arg) for arg in expr.arguments]
+                    builtin_fn = get_builtin(builtin_name)
+                    res = builtin_fn(*args)
+                    return res
+                else:
+                    raise NoxyRuntimeError(f"Método Sqlite '{method_name}' não suportado")
+
         
         # Chamada em expressão
         callee = self.evaluate(expr.callee)

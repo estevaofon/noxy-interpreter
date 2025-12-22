@@ -15,6 +15,7 @@ import shutil
 import socket
 import select
 import time
+import sqlite3
 
 
 def noxy_print(*args) -> None:
@@ -1149,6 +1150,454 @@ def strings_from_char_code(code: int) -> str:
     return chr(code)
 
 
+
+# ============================================================================
+# SQLITE MODULE BUILTINS
+# ============================================================================
+
+# Tabela de conexões: handle -> connection
+open_databases: dict[int, sqlite3.Connection] = {}
+next_db_handle: int = 1
+
+# Tabela de statements: handle -> cursor info
+open_statements: dict[int, dict] = {}
+next_stmt_handle: int = 1
+
+
+def sqlite_open(path: str) -> NoxyStruct:
+    """Abre ou cria um banco de dados SQLite."""
+    global next_db_handle
+    try:
+        conn = sqlite3.connect(path, isolation_level=None)
+        handle = next_db_handle
+        next_db_handle += 1
+        open_databases[handle] = conn
+        return NoxyStruct("Database", {
+            "handle": handle,
+            "path": path,
+            "open": True
+        })
+    except Exception as e:
+        return NoxyStruct("Database", {
+            "handle": -1,
+            "path": path,
+            "open": False
+        })
+
+
+def sqlite_close(db: Any) -> None:
+    """Fecha uma conexão com o banco de dados."""
+    handle = _get_db_handle(db)
+    if handle and handle in open_databases:
+        try:
+            open_databases[handle].close()
+        except:
+            pass
+        del open_databases[handle]
+
+
+def sqlite_exec(db: Any, sql: str) -> NoxyStruct:
+    """Executa SQL sem retorno de dados (CREATE, INSERT, UPDATE, DELETE)."""
+    handle = _get_db_handle(db)
+    if handle is None or handle not in open_databases:
+        return NoxyStruct("ExecResult", {
+            "ok": False,
+            "rows_affected": 0,
+            "last_insert_id": 0,
+            "error": "Database not open"
+        })
+    
+    try:
+        conn = open_databases[handle]
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        # Em isolation_level=None, autocommit é o padrão, a menos que haja BEGIN explícito.
+        # Não chamamos conn.commit().
+        return NoxyStruct("ExecResult", {
+            "ok": True,
+            "rows_affected": cursor.rowcount,
+            "last_insert_id": cursor.lastrowid or 0,
+            "error": ""
+        })
+    except Exception as e:
+        return NoxyStruct("ExecResult", {
+            "ok": False,
+            "rows_affected": 0,
+            "last_insert_id": 0,
+            "error": str(e)
+        })
+
+
+def sqlite_query(db: Any, sql: str) -> NoxyStruct:
+    """Executa uma query SELECT e retorna os resultados."""
+    handle = _get_db_handle(db)
+    if handle is None or handle not in open_databases:
+        return _empty_query_result("Database not open")
+    
+    try:
+        conn = open_databases[handle]
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        
+        # Obtém nomes das colunas
+        columns = [desc[0] for desc in cursor.description] if cursor.description else []
+        column_count = len(columns)
+        
+        # Preenche array de colunas (tamanho fixo 32)
+        columns_array = columns[:32] + [""] * (32 - min(len(columns), 32))
+        
+        # Obtém linhas (máximo 100)
+        rows_data = cursor.fetchmany(100)
+        row_count = len(rows_data)
+        
+        # Converte para structs Row
+        rows = []
+        for row in rows_data:
+            values = []
+            types = []
+            for val in row:
+                if val is None:
+                    values.append("")
+                    types.append(0)  # NULL
+                elif isinstance(val, int):
+                    values.append(str(val))
+                    types.append(1)  # INT
+                elif isinstance(val, float):
+                    values.append(str(val))
+                    types.append(2)  # FLOAT
+                elif isinstance(val, str):
+                    values.append(val)
+                    types.append(3)  # TEXT
+                elif isinstance(val, bytes):
+                    values.append(val.hex())
+                    types.append(4)  # BLOB
+                else:
+                    values.append(str(val))
+                    types.append(3)
+            
+            # Preenche até 32 elementos
+            values = values[:32] + [""] * (32 - min(len(values), 32))
+            types = types[:32] + [0] * (32 - min(len(types), 32))
+            
+            rows.append(NoxyStruct("Row", {
+                "values": values,
+                "types": types
+            }))
+        
+        # Preenche rows até 100
+        empty_row = NoxyStruct("Row", {
+            "values": [""] * 32,
+            "types": [0] * 32
+        })
+        while len(rows) < 100:
+            rows.append(empty_row)
+        
+        return NoxyStruct("QueryResult", {
+            "ok": True,
+            "rows": rows,
+            "row_count": row_count,
+            "columns": columns_array,
+            "column_count": column_count,
+            "error": ""
+        })
+    except Exception as e:
+        return _empty_query_result(str(e))
+
+
+def sqlite_prepare(db: Any, sql: str) -> NoxyStruct:
+    """Prepara um statement para execução."""
+    global next_stmt_handle
+    handle = _get_db_handle(db)
+    if handle is None or handle not in open_databases:
+        return NoxyStruct("Statement", {
+            "handle": -1,
+            "sql": sql,
+            "param_count": 0,
+            "ready": False
+        })
+    
+    try:
+        conn = open_databases[handle]
+        cursor = conn.cursor()
+        # Conta placeholders (?)
+        param_count = sql.count("?")
+        
+        stmt_handle = next_stmt_handle
+        next_stmt_handle += 1
+        
+        # Armazena cursor e info
+        open_statements[stmt_handle] = {
+            "cursor": cursor,
+            "sql": sql,
+            "conn": conn,
+            "params": {}
+        }
+        
+        return NoxyStruct("Statement", {
+            "handle": stmt_handle,
+            "sql": sql,
+            "param_count": param_count,
+            "ready": True
+        })
+    except Exception as e:
+        return NoxyStruct("Statement", {
+            "handle": -1,
+            "sql": sql,
+            "param_count": 0,
+            "ready": False
+        })
+
+
+def sqlite_bind_int(stmt: Any, pos: int, val: int) -> None:
+    """Bind de valor inteiro a um placeholder."""
+    handle = _get_stmt_handle(stmt)
+    if handle and handle in open_statements:
+        open_statements[handle]["params"][pos] = val
+
+
+def sqlite_bind_float(stmt: Any, pos: int, val: float) -> None:
+    """Bind de valor float a um placeholder."""
+    handle = _get_stmt_handle(stmt)
+    if handle and handle in open_statements:
+        open_statements[handle]["params"][pos] = val
+
+
+def sqlite_bind_text(stmt: Any, pos: int, val: str) -> None:
+    """Bind de valor string a um placeholder."""
+    handle = _get_stmt_handle(stmt)
+    if handle and handle in open_statements:
+        open_statements[handle]["params"][pos] = val
+
+
+def sqlite_bind_null(stmt: Any, pos: int) -> None:
+    """Bind de NULL a um placeholder."""
+    handle = _get_stmt_handle(stmt)
+    if handle and handle in open_statements:
+        open_statements[handle]["params"][pos] = None
+
+
+def sqlite_step_exec(stmt: Any) -> NoxyStruct:
+    """Executa um prepared statement (INSERT/UPDATE/DELETE)."""
+    handle = _get_stmt_handle(stmt)
+    if handle is None or handle not in open_statements:
+        return NoxyStruct("ExecResult", {
+            "ok": False,
+            "rows_affected": 0,
+            "last_insert_id": 0,
+            "error": "Statement not ready"
+        })
+    
+    try:
+        stmt_data = open_statements[handle]
+        cursor = stmt_data["cursor"]
+        sql = stmt_data["sql"]
+        conn = stmt_data["conn"]
+        
+        # Monta tupla de parâmetros ordenados
+        params = stmt_data["params"]
+        max_pos = max(params.keys()) if params else 0
+        param_tuple = tuple(params.get(i, None) for i in range(1, max_pos + 1))
+        
+        cursor.execute(sql, param_tuple)
+        
+        return NoxyStruct("ExecResult", {
+            "ok": True,
+            "rows_affected": cursor.rowcount,
+            "last_insert_id": cursor.lastrowid or 0,
+            "error": ""
+        })
+    except Exception as e:
+        return NoxyStruct("ExecResult", {
+            "ok": False,
+            "rows_affected": 0,
+            "last_insert_id": 0,
+            "error": str(e)
+        })
+
+
+def sqlite_step_query(stmt: Any) -> NoxyStruct:
+    """Executa um prepared statement SELECT."""
+    handle = _get_stmt_handle(stmt)
+    if handle is None or handle not in open_statements:
+        return _empty_query_result("Statement not ready")
+    
+    try:
+        stmt_data = open_statements[handle]
+        cursor = stmt_data["cursor"]
+        sql = stmt_data["sql"]
+        
+        # Monta tupla de parâmetros
+        params = stmt_data["params"]
+        max_pos = max(params.keys()) if params else 0
+        param_tuple = tuple(params.get(i, None) for i in range(1, max_pos + 1))
+        
+        cursor.execute(sql, param_tuple)
+        
+        # Processa resultados
+        columns = [desc[0] for desc in cursor.description] if cursor.description else []
+        column_count = len(columns)
+        columns_array = columns[:32] + [""] * (32 - min(len(columns), 32))
+        
+        rows_data = cursor.fetchmany(100)
+        row_count = len(rows_data)
+        
+        rows = []
+        for row in rows_data:
+            values = []
+            types = []
+            for val in row:
+                if val is None:
+                    values.append("")
+                    types.append(0)
+                elif isinstance(val, int):
+                    values.append(str(val))
+                    types.append(1)
+                elif isinstance(val, float):
+                    values.append(str(val))
+                    types.append(2)
+                elif isinstance(val, str):
+                    values.append(val)
+                    types.append(3)
+                elif isinstance(val, bytes):
+                    values.append(val.hex())
+                    types.append(4)
+                else:
+                    values.append(str(val))
+                    types.append(3)
+            
+            values = values[:32] + [""] * (32 - min(len(values), 32))
+            types = types[:32] + [0] * (32 - min(len(types), 32))
+            
+            rows.append(NoxyStruct("Row", {"values": values, "types": types}))
+        
+        empty_row = NoxyStruct("Row", {"values": [""] * 32, "types": [0] * 32})
+        while len(rows) < 100:
+            rows.append(empty_row)
+        
+        return NoxyStruct("QueryResult", {
+            "ok": True,
+            "rows": rows,
+            "row_count": row_count,
+            "columns": columns_array,
+            "column_count": column_count,
+            "error": ""
+        })
+    except Exception as e:
+        return _empty_query_result(str(e))
+
+
+def sqlite_reset(stmt: Any) -> None:
+    """Reseta um statement para reutilização."""
+    handle = _get_stmt_handle(stmt)
+    if handle and handle in open_statements:
+        open_statements[handle]["params"] = {}
+
+
+def sqlite_finalize(stmt: Any) -> None:
+    """Libera recursos de um statement."""
+    handle = _get_stmt_handle(stmt)
+    if handle and handle in open_statements:
+        try:
+            open_statements[handle]["cursor"].close()
+        except:
+            pass
+        del open_statements[handle]
+
+
+def sqlite_begin(db: Any) -> bool:
+    """Inicia uma transação."""
+    handle = _get_db_handle(db)
+    if handle is None or handle not in open_databases:
+        return False
+    try:
+        open_databases[handle].execute("BEGIN")
+        return True
+    except:
+        return False
+
+
+def sqlite_commit(db: Any) -> bool:
+    """Confirma uma transação."""
+    handle = _get_db_handle(db)
+    if handle is None or handle not in open_databases:
+        return False
+    try:
+        open_databases[handle].execute("COMMIT")
+        return True
+    except:
+        return False
+
+
+def sqlite_rollback(db: Any) -> bool:
+    """Cancela uma transação."""
+    handle = _get_db_handle(db)
+    if handle is None or handle not in open_databases:
+        return False
+    try:
+        open_databases[handle].execute("ROLLBACK")
+        return True
+    except:
+        return False
+
+
+def sqlite_table_exists(db: Any, name: str) -> bool:
+    """Verifica se uma tabela existe."""
+    handle = _get_db_handle(db)
+    if handle is None or handle not in open_databases:
+        return False
+    try:
+        cursor = open_databases[handle].cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (name,)
+        )
+        return cursor.fetchone() is not None
+    except:
+        return False
+
+
+def sqlite_escape(val: str) -> str:
+    """Escapa uma string para uso seguro em SQL."""
+    if not isinstance(val, str):
+        return str(val)
+    return val.replace("'", "''")
+
+
+# ============================================
+# Helpers internos para SQLite
+# ============================================
+
+def _get_db_handle(db: Any) -> int | None:
+    """Extrai handle de um Database struct."""
+    if isinstance(db, NoxyStruct):
+        return db.fields.get("handle")
+    elif isinstance(db, dict):
+        return db.get("handle")
+    return None
+
+
+def _get_stmt_handle(stmt: Any) -> int | None:
+    """Extrai handle de um Statement struct."""
+    if isinstance(stmt, NoxyStruct):
+        return stmt.fields.get("handle")
+    elif isinstance(stmt, dict):
+        return stmt.get("handle")
+    return None
+
+
+def _empty_query_result(error: str) -> NoxyStruct:
+    """Cria um QueryResult vazio com erro."""
+    empty_row = NoxyStruct("Row", {"values": [""] * 32, "types": [0] * 32})
+    return NoxyStruct("QueryResult", {
+        "ok": False,
+        "rows": [empty_row] * 100,
+        "row_count": 0,
+        "columns": [""] * 32,
+        "column_count": 0,
+        "error": error
+    })
+
+
 # Dicionário de funções builtin
 BUILTINS: dict[str, Callable] = {
     "print": noxy_print,
@@ -1156,8 +1605,6 @@ BUILTINS: dict[str, Callable] = {
     "to_int": noxy_to_int,
     "to_float": noxy_to_float,
     "to_bytes": noxy_to_bytes,
-    "strlen": noxy_strlen,
-    "ord": noxy_ord,
     "strlen": noxy_strlen,
     "ord": noxy_ord,
     "substring": noxy_substring,
@@ -1183,7 +1630,6 @@ BUILTINS: dict[str, Callable] = {
     "net_connect": net_connect,
     "net_recv": net_recv,
     "net_send": net_send,
-    "net_close": net_close,
     "net_close": net_close,
     "net_setblocking": net_setblocking,
     "net_select": net_select,
@@ -1232,6 +1678,26 @@ BUILTINS: dict[str, Callable] = {
     "strings_is_space": strings_is_space,
     "strings_char_at": strings_char_at,
     "strings_from_char_code": strings_from_char_code,
+    
+    # SQLite Functions
+    "sqlite_open": sqlite_open,
+    "sqlite_close": sqlite_close,
+    "sqlite_exec": sqlite_exec,
+    "sqlite_query": sqlite_query,
+    "sqlite_prepare": sqlite_prepare,
+    "sqlite_bind_int": sqlite_bind_int,
+    "sqlite_bind_float": sqlite_bind_float,
+    "sqlite_bind_text": sqlite_bind_text,
+    "sqlite_bind_null": sqlite_bind_null,
+    "sqlite_step_exec": sqlite_step_exec,
+    "sqlite_step_query": sqlite_step_query,
+    "sqlite_reset": sqlite_reset,
+    "sqlite_finalize": sqlite_finalize,
+    "sqlite_begin": sqlite_begin,
+    "sqlite_commit": sqlite_commit,
+    "sqlite_rollback": sqlite_rollback,
+    "sqlite_table_exists": sqlite_table_exists,
+    "sqlite_escape": sqlite_escape,
 }
 
 
