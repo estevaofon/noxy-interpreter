@@ -9,6 +9,8 @@ from errors import NoxyRuntimeError
 from ast_nodes import PrimitiveType, ArrayType, StructType, RefType
 import os
 import os
+import subprocess
+import sys
 import shutil
 import socket
 import select
@@ -236,6 +238,115 @@ def format_value(value: Any, format_spec: str = None) -> str:
         # Outros tipos
         return value_to_string(value)
 
+
+
+# ============================================================================
+# SYS MODULE BUILTINS
+# ============================================================================
+
+def sys_exec(command: str) -> NoxyStruct:
+    """Executa comando do sistema - saída vai para terminal."""
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=False,
+            text=True
+        )
+        return NoxyStruct("SysResult", {
+            "ok": result.returncode == 0,
+            "output": "",
+            "exit_code": result.returncode,
+            "error": ""
+        })
+    except Exception as e:
+        return NoxyStruct("SysResult", {
+            "ok": False,
+            "output": "",
+            "exit_code": -1,
+            "error": str(e)
+        })
+
+def sys_exec_output(command: str) -> NoxyStruct:
+    """Executa comando e captura saída."""
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        return NoxyStruct("SysResult", {
+            "ok": result.returncode == 0,
+            "output": result.stdout,
+            "exit_code": result.returncode,
+            "error": result.stderr
+        })
+    except subprocess.TimeoutExpired:
+        return NoxyStruct("SysResult", {
+            "ok": False,
+            "output": "",
+            "exit_code": -1,
+            "error": "Command timeout"
+        })
+    except Exception as e:
+        return NoxyStruct("SysResult", {
+            "ok": False,
+            "output": "",
+            "exit_code": -1,
+            "error": str(e)
+        })
+
+def sys_getenv(name: str) -> NoxyStruct:
+    """Obtém variável de ambiente."""
+    value = os.environ.get(name)
+    if value is not None:
+        return NoxyStruct("EnvResult", {
+            "ok": True,
+            "value": value,
+            "error": ""
+        })
+    return NoxyStruct("EnvResult", {
+        "ok": False,
+        "value": "",
+        "error": f"Variable '{name}' not found"
+    })
+
+def sys_setenv(name: str, value: str) -> bool:
+    """Define variável de ambiente."""
+    try:
+        os.environ[name] = value
+        return True
+    except:
+        return False
+
+def sys_getcwd() -> str:
+    """Obtém diretório atual."""
+    return os.getcwd()
+
+def sys_chdir(path: str) -> bool:
+    """Muda diretório de trabalho."""
+    try:
+        os.chdir(path)
+        return True
+    except:
+        return False
+
+def sys_exit(code: int) -> None:
+    """Termina programa."""
+    sys.exit(code)
+
+def sys_argv() -> list:
+    """Retorna argumentos da linha de comando."""
+    result = list(sys.argv)
+    while len(result) < 100:
+        result.append("")
+    return result[:100]
+
+def sys_sleep(ms: int) -> None:
+    """Pausa execução."""
+    time.sleep(ms / 1000.0)
 
 
 # ============================================================================
@@ -722,6 +833,16 @@ BUILTINS: dict[str, Callable] = {
     # Array utils
     "push": noxy_push,
     "remove": noxy_remove,
+    # Sys Functions
+    "sys_exec": sys_exec,
+    "sys_exec_output": sys_exec_output,
+    "sys_getenv": sys_getenv,
+    "sys_setenv": sys_setenv,
+    "sys_getcwd": sys_getcwd,
+    "sys_chdir": sys_chdir,
+    "sys_exit": sys_exit,
+    "sys_argv": sys_argv,
+    "sys_sleep": sys_sleep,
 }
 
 

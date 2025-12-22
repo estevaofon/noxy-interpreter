@@ -54,4 +54,15 @@ BUILTIN_SIGNATURES = {
     # Array Utils
     "push": (PrimitiveType("void"), [Any, Any]), # array, item
     "remove": (PrimitiveType("void"), [Any, Any]), # array, item
+
+    # Sys Functions
+    "sys_exec": (StructType("SysResult"), [PrimitiveType("string")]),
+    "sys_exec_output": (StructType("SysResult"), [PrimitiveType("string")]),
+    "sys_getenv": (StructType("EnvResult"), [PrimitiveType("string")]),
+    "sys_setenv": (PrimitiveType("bool"), [PrimitiveType("string"), PrimitiveType("string")]),
+    "sys_getcwd": (PrimitiveType("string"), []),
+    "sys_chdir": (PrimitiveType("bool"), [PrimitiveType("string")]),
+    "sys_exit": (PrimitiveType("void"), [PrimitiveType("int")]),
+    "sys_argv": (ArrayType(PrimitiveType("string"), 100), []),
+    "sys_sleep": (PrimitiveType("void"), [PrimitiveType("int")]),
 }
