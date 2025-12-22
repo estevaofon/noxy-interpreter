@@ -574,13 +574,16 @@ class TypeChecker:
             # SQLite support
             elif isinstance(obj_type, StructType) and obj_type.name == "Sqlite":
                 method_name = f"sqlite_{callee_expr.field_name}"
+            # Strings support
+            elif isinstance(obj_type, StructType) and obj_type.name == "Strings":
+                method_name = f"strings_{callee_expr.field_name}"
             
         elif isinstance(callee_expr, Identifier):
              method_name = callee_expr.name
 
         if method_name:
             # Função definida pelo usuário (somente se não for builtin mapeado)
-            if not method_name.startswith("io_") and not method_name.startswith("net_") and not method_name.startswith("sqlite_") and method_name in self.functions:
+            if not method_name.startswith("io_") and not method_name.startswith("net_") and not method_name.startswith("sqlite_") and not method_name.startswith("strings_") and method_name in self.functions:
                  func_def = self.functions[method_name]
                  if len(expr.arguments) != len(func_def.params):
                      raise NoxyTypeError(

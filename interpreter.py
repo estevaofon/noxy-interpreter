@@ -571,6 +571,17 @@ class Interpreter:
                 else:
                     raise NoxyRuntimeError(f"Método Sqlite '{method_name}' não suportado")
 
+            # Verifica se é objeto Strings
+            if isinstance(obj, NoxyStruct) and obj.type_name == "Strings":
+                builtin_name = f"strings_{method_name}"
+                if is_builtin(builtin_name):
+                    args = [self.evaluate(arg) for arg in expr.arguments]
+                    builtin_fn = get_builtin(builtin_name)
+                    res = builtin_fn(*args)
+                    return res
+                else:
+                    raise NoxyRuntimeError(f"Método Strings '{method_name}' não suportado")
+
         
         # Chamada em expressão
         callee = self.evaluate(expr.callee)
