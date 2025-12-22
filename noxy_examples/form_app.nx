@@ -3,6 +3,7 @@ use http_parser select *
 use net select *
 use strings select *
 use io select *
+use sys select getenv
 
 // --- Helper Functions ---
 
@@ -109,8 +110,24 @@ end
 
 // --- Main Server Setup ---
 
-print("Starting Form App on port 8080...")
-let server: HttpServer = new_server("127.0.0.1", 8080)
+print("Starting Form App...")
+
+// Configuração de Porta e Host para Deploy (AWS/Render)
+let port: int = 8080
+let host: string = "0.0.0.0" 
+
+let port_env: EnvResult = getenv("PORT")
+if port_env.ok then
+    // Tenta converter string para int
+    // Nota: to_int é builtin
+    let p: int = to_int(port_env.value)
+    if p > 0 then
+        port = p
+    end
+end
+
+print("Binding to " + host + ":" + to_str(port))
+let server: HttpServer = new_server(host, port)
 
 if start(server) then
     print("Server running. Open http://localhost:8080")
