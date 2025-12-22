@@ -509,20 +509,24 @@ class Parser:
         return ReturnStmt(value, loc)
     
     def parse_use_stmt(self, loc: SourceLocation) -> UseStmt:
-        """Parseia: use module.path select sym1, sym2."""
+        """Parseia: use module.path [select sym1, sym2]."""
         module_path = [self.consume(TokenType.IDENTIFIER, "Nome do módulo esperado").value]
         while self.match(TokenType.DOT):
             module_path.append(self.consume(TokenType.IDENTIFIER, "Nome do módulo esperado").value)
         
-        self.consume(TokenType.SELECT, "'select' esperado")
-        
         imports = []
-        if self.match(TokenType.STAR):
-            imports = ["*"]
-        else:
-            imports.append(self.consume(TokenType.IDENTIFIER, "Nome do símbolo esperado").value)
-            while self.match(TokenType.COMMA):
+        if self.match(TokenType.SELECT):
+            if self.match(TokenType.STAR):
+                imports = ["*"]
+            else:
                 imports.append(self.consume(TokenType.IDENTIFIER, "Nome do símbolo esperado").value)
+                while self.match(TokenType.COMMA):
+                    imports.append(self.consume(TokenType.IDENTIFIER, "Nome do símbolo esperado").value)
+        else:
+            # Se não tem select, importa o nome do módulo (ex: use io -> import io)
+            # Assume que o módulo exporta um símbolo com o mesmo nome
+            module_name = module_path[-1]
+            imports = [module_name]
         
         return UseStmt(module_path, imports, loc)
     

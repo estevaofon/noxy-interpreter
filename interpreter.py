@@ -31,6 +31,8 @@ class Interpreter:
         self.global_env = Environment()
         self.current_env = self.global_env
         self.base_path = Path(base_path)  # Diretório base para resolver imports
+        # Define o caminho da stdlib relativo ao arquivo do interpretador
+        self.stdlib_path = Path(__file__).parent / "stdlib"
         self.loaded_modules: set[str] = set()  # Módulos já carregados
     
     def run(self, program: Program):
@@ -169,10 +171,15 @@ class Interpreter:
         
         # Verifica se o módulo existe
         if not full_path.exists():
-            raise NoxyRuntimeError(
-                f"Módulo não encontrado: {module_path}",
-                stmt.location
-            )
+            # Tenta na stdlib (relativo ao interpretador)
+            candidate = self.stdlib_path / module_path
+            if candidate.exists():
+                full_path = candidate
+            else:
+                raise NoxyRuntimeError(
+                    f"Módulo não encontrado: {module_path}",
+                    stmt.location
+                )
         
         # Evita carregar o mesmo módulo duas vezes
         module_key = str(full_path.resolve())
@@ -189,15 +196,18 @@ class Interpreter:
         parser = Parser(tokens)
         program = parser.parse()
         
-        # Coleta definições do módulo (funções e structs)
+        # Coleta definições do módulo (funções, structs e globals)
         module_functions: dict[str, FuncDef] = {}
         module_structs: dict[str, StructDef] = {}
+        module_globals: dict[str, GlobalStmt] = {}
         
         for s in program.statements:
             if isinstance(s, FuncDef):
                 module_functions[s.name] = s
             elif isinstance(s, StructDef):
                 module_structs[s.name] = s
+            elif isinstance(s, GlobalStmt):
+                module_globals[s.name] = s
         
         # Importa os símbolos solicitados
         if stmt.imports == ["*"]:
@@ -206,18 +216,62 @@ class Interpreter:
                 self.global_env.define_function(func)
             for name, struct in module_structs.items():
                 self.global_env.define_struct(struct)
+            
+            # Avalia globais no contexto do módulo
+            module_env = self.global_env.new_child()
+            for name, func in module_functions.items():
+                module_env.define_function(func)
+            for name, struct in module_structs.items():
+                module_env.define_struct(struct)
+            
+            # Necessário para referências cruzadas entre globais
+            prev_env = self.current_env
+            self.current_env = module_env
+            try:
+                for name, glob in module_globals.items():
+                    # Executa initializer
+                    val = self.evaluate(glob.initializer)
+                    module_env.define(name, glob.var_type, val) # Define localmente para outros usarem
+                    # Define no global env do importador
+                    self.global_env.define(name, glob.var_type, val, is_global=True)
+            finally:
+                self.current_env = prev_env
+                
         else:
             # Importa símbolos específicos
-            for symbol in stmt.imports:
-                if symbol in module_functions:
-                    self.global_env.define_function(module_functions[symbol])
-                elif symbol in module_structs:
-                    self.global_env.define_struct(module_structs[symbol])
-                else:
-                    raise NoxyRuntimeError(
-                        f"Símbolo '{symbol}' não encontrado no módulo '{'.'.join(stmt.module_path)}'",
-                        stmt.location
-                    )
+            
+            # Prepara ambiente para avaliação (lazy definition)
+            module_env = self.global_env.new_child()
+            for name, func in module_functions.items():
+                module_env.define_function(func)
+            for name, struct in module_structs.items():
+                module_env.define_struct(struct)
+                
+            prev_env = self.current_env
+            self.current_env = module_env
+            
+            try:
+                # Ordenação simplificada: avalia o que foi pedido
+                # Se houver dependência entre globais, isso pode falhar se não importarmos na ordem certa ou tudo.
+                # Assumimos que globais exportados são independentes ou dependem de funcs/structs.
+                
+                for symbol in stmt.imports:
+                    if symbol in module_functions:
+                        self.global_env.define_function(module_functions[symbol])
+                    elif symbol in module_structs:
+                        self.global_env.define_struct(module_structs[symbol])
+                    elif symbol in module_globals:
+                        glob = module_globals[symbol]
+                        val = self.evaluate(glob.initializer)
+                        self.global_env.define(symbol, glob.var_type, val, is_global=True)
+                    else:
+                        raise NoxyRuntimeError(
+                            f"Símbolo '{symbol}' não encontrado no módulo '{'.'.join(stmt.module_path)}'",
+                            stmt.location
+                        )
+            finally:
+                self.current_env = prev_env
+
     
     def execute_block(self, statements: list[Stmt]):
         """Executa um bloco de statements."""
@@ -378,6 +432,42 @@ class Interpreter:
                 return builtin_fn(*args)
             
             raise NoxyNameError(f"Função '{name}' não definida")
+        
+        # Chamada de método (io.open etc)
+        if isinstance(expr.callee, FieldAccess):
+            obj = self.evaluate(expr.callee.object)
+            method_name = expr.callee.field_name
+            
+            # Verifica se é objeto IO
+            if isinstance(obj, NoxyStruct) and obj.type_name == "IO":
+                builtin_name = f"io_{method_name}"
+                if is_builtin(builtin_name):
+                    args = [self.evaluate(arg) for arg in expr.arguments]
+                    builtin_fn = get_builtin(builtin_name)
+                    res = builtin_fn(*args)
+                    
+                    # Converte dict para NoxyStruct se necessário
+                    if isinstance(res, dict):
+                        # Detecta tipo de retorno baseado no método
+                        # Simplificação: se tem 'fd', é File. Se tem 'ok', é IOResult/FileInfo
+                        if "fd" in res:
+                            return NoxyStruct("File", res)
+                        elif "exists" in res:
+                            return NoxyStruct("FileInfo", res)
+                        elif "ok" in res:
+                            # Tratamento especial para IOResult.data que pode ser list
+                            data = res["data"]
+                            # Se for lista, converte para NoxyArray (se tivermos suporte) ou ...
+                            # NoxyArray espera tipo.
+                            # Mas IOResult é {ok: bool, data: string, error: string}
+                            # Se data for lista, vai quebrar se não tratarmos.
+                            # Hack: se for lista, converte pra string representação ou mantém lista python se engine aguentar?
+                            # O engine Python aguenta lista em value.
+                            return NoxyStruct("IOResult", res)
+                    return res
+                else:
+                    raise NoxyRuntimeError(f"Método IO '{method_name}' não suportado")
+
         
         # Chamada em expressão
         callee = self.evaluate(expr.callee)
