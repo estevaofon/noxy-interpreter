@@ -8,7 +8,7 @@ from typing import Any
 from ast_nodes import (
 
     NoxyType, PrimitiveType, ArrayType, StructType, RefType,
-    Expr, IntLiteral, FloatLiteral, StringLiteral, BoolLiteral, NullLiteral,
+    Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
     Identifier, BinaryOp, UnaryOp, CallExpr, IndexExpr, FieldAccess,
     ArrayLiteral, RefExpr, FString, ZerosExpr, GroupExpr, FStringExpr,
     Stmt, LetStmt, GlobalStmt, AssignStmt, ExprStmt, IfStmt, WhileStmt,
@@ -355,6 +355,9 @@ class TypeChecker:
         
         if isinstance(expr, StringLiteral):
             return PrimitiveType("string")
+            
+        if isinstance(expr, BytesLiteral):
+            return PrimitiveType("bytes")
         
         if isinstance(expr, BoolLiteral):
             return PrimitiveType("bool")
@@ -429,6 +432,14 @@ class TypeChecker:
                         expr.location
                     )
                 return PrimitiveType("string")
+            
+            if op == "+" and isinstance(left_type, PrimitiveType) and left_type.name == "bytes":
+                if not isinstance(right_type, PrimitiveType) or right_type.name != "bytes":
+                    raise NoxyTypeError(
+                        f"Concatenação requer bytes + bytes",
+                        expr.location
+                    )
+                return PrimitiveType("bytes")
             
             if not types_equal(left_type, right_type):
                 raise NoxyTypeError(
@@ -645,6 +656,9 @@ class TypeChecker:
         
         if isinstance(obj_type, PrimitiveType) and obj_type.name == "string":
             return PrimitiveType("string")
+
+        if isinstance(obj_type, PrimitiveType) and obj_type.name == "bytes":
+            return PrimitiveType("int")
         
         raise NoxyTypeError(
             f"Tipo '{type_to_str(obj_type)}' não suporta indexação",

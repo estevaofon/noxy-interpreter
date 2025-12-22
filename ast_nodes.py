@@ -125,6 +125,13 @@ class StringLiteral(Expr):
 
 
 @dataclass
+class BytesLiteral(Expr):
+    """Literal bytes: b"Hello"."""
+    value: bytes
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass
 class BoolLiteral(Expr):
     """Literal booleano: true, false."""
     value: bool

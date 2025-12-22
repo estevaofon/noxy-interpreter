@@ -9,7 +9,7 @@ from ast_nodes import (
     # Tipos
     NoxyType, PrimitiveType, ArrayType, StructType, RefType,
     # Expressões
-    Expr, IntLiteral, FloatLiteral, StringLiteral, BoolLiteral, NullLiteral,
+    Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
     Identifier, BinaryOp, UnaryOp, CallExpr, IndexExpr, FieldAccess,
     ArrayLiteral, RefExpr, FString, FStringExpr, ZerosExpr, GroupExpr,
     # Statements
@@ -102,6 +102,8 @@ class Parser:
             base_type = PrimitiveType("string")
         elif self.match(TokenType.TYPE_BOOL):
             base_type = PrimitiveType("bool")
+        elif self.match(TokenType.TYPE_BYTES):
+            base_type = PrimitiveType("bytes")
         elif self.match(TokenType.TYPE_VOID):
             base_type = PrimitiveType("void")
         elif self.check(TokenType.IDENTIFIER):
@@ -251,6 +253,9 @@ class Parser:
         
         if self.match(TokenType.STRING):
             return StringLiteral(self.previous.value, loc)
+
+        if self.match(TokenType.BYTES):
+            return BytesLiteral(self.previous.value, loc)
         
         if self.match(TokenType.TRUE):
             return BoolLiteral(True, loc)

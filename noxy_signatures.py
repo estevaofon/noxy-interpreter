@@ -9,7 +9,9 @@ BUILTIN_SIGNATURES = {
     "print": (None, [Any]), # Varargs treated specially
     "to_str": (PrimitiveType("string"), [Any]),
     "to_int": (PrimitiveType("int"), [Any]),
+    "to_int": (PrimitiveType("int"), [Any]),
     "to_float": (PrimitiveType("float"), [Any]),
+    "to_bytes": (PrimitiveType("bytes"), [Any]),
     "strlen": (PrimitiveType("int"), [PrimitiveType("string")]),
     "ord": (PrimitiveType("int"), [PrimitiveType("string")]),
     "length": (PrimitiveType("int"), [Any]),

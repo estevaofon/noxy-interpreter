@@ -7,7 +7,7 @@ from typing import Any, Optional
 from pathlib import Path
 from ast_nodes import (
     NoxyType, PrimitiveType, ArrayType, StructType, RefType,
-    Expr, IntLiteral, FloatLiteral, StringLiteral, BoolLiteral, NullLiteral,
+    Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
     Identifier, BinaryOp, UnaryOp, CallExpr, IndexExpr, FieldAccess,
     ArrayLiteral, RefExpr, FString, FStringExpr, ZerosExpr, GroupExpr,
     Stmt, LetStmt, GlobalStmt, AssignStmt, ExprStmt, IfStmt, WhileStmt,
@@ -294,6 +294,9 @@ class Interpreter:
         
         if isinstance(expr, StringLiteral):
             return expr.value
+
+        if isinstance(expr, BytesLiteral):
+            return expr.value
         
         if isinstance(expr, BoolLiteral):
             return expr.value
@@ -361,6 +364,8 @@ class Interpreter:
         # Aritméticos
         if op == "+":
             if isinstance(left, str) and isinstance(right, str):
+                return left + right
+            if isinstance(left, bytes) and isinstance(right, bytes):
                 return left + right
             return left + right
         
@@ -555,6 +560,11 @@ class Interpreter:
             return obj[index]
         
         if isinstance(obj, str):
+            if index < 0 or index >= len(obj):
+                raise NoxyIndexError(f"Índice {index} fora dos limites [0, {len(obj)})")
+            return obj[index]
+        
+        if isinstance(obj, bytes):
             if index < 0 or index >= len(obj):
                 raise NoxyIndexError(f"Índice {index} fora dos limites [0, {len(obj)})")
             return obj[index]

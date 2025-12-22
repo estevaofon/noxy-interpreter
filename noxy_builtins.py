@@ -38,6 +38,30 @@ def noxy_to_int(value: Any) -> int:
     raise NoxyRuntimeError(f"Não é possível converter {type(value).__name__} para int")
 
 
+def noxy_to_bytes(value: Any) -> bytes:
+    """Converte valores para bytes."""
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, str):
+        return value.encode('utf-8')
+    if isinstance(value, int):
+        # Converte int para byte único? Ou representação de bytes?
+        # Python bytes([int]) cria bytes com valor do int.
+        # Python bytes(int) cria n bytes nulos.
+        # Vamos assumir conversão de lista de ints ou int como byte único
+        if 0 <= value <= 255:
+            return bytes([value])
+        raise NoxyRuntimeError(f"Inteiro {value} fora do range de byte (0-255)")
+    if isinstance(value, list) or isinstance(value, NoxyArray):
+        # Array de ints
+        try:
+            return bytes(value if isinstance(value, list) else value.elements)
+        except ValueError:
+             raise NoxyRuntimeError("Array deve conter apenas inteiros 0-255 para converter para bytes")
+             
+    raise NoxyRuntimeError(f"Não é possível converter {type(value).__name__} para bytes")
+
+
 def noxy_to_float(value: Any) -> float:
     """Converte int para float."""
     if isinstance(value, int):
@@ -107,6 +131,10 @@ def value_to_string(value: Any) -> str:
     
     if isinstance(value, str):
         return value
+    
+    if isinstance(value, bytes):
+        # Representação b'...'
+        return str(value)
     
     if isinstance(value, list):
         elements = ", ".join(value_to_string(e) for e in value)
@@ -345,6 +373,7 @@ BUILTINS: dict[str, Callable] = {
     "to_str": noxy_to_str,
     "to_int": noxy_to_int,
     "to_float": noxy_to_float,
+    "to_bytes": noxy_to_bytes,
     "strlen": noxy_strlen,
     "ord": noxy_ord,
     "length": noxy_length,

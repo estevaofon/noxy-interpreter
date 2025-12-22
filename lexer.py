@@ -15,6 +15,7 @@ class TokenType(Enum):
     INT = auto()
     FLOAT = auto()
     STRING = auto()
+    BYTES = auto()
     FSTRING = auto()
     
     # Identificador
@@ -42,6 +43,7 @@ class TokenType(Enum):
     TYPE_STRING = auto()
     TYPE_STR = auto()
     TYPE_BOOL = auto()
+    TYPE_BYTES = auto()
     TYPE_VOID = auto()
     REF = auto()
     
@@ -123,6 +125,7 @@ KEYWORDS = {
     "string": TokenType.TYPE_STRING,
     "str": TokenType.TYPE_STR,
     "bool": TokenType.TYPE_BOOL,
+    "bytes": TokenType.TYPE_BYTES,
     "void": TokenType.TYPE_VOID,
     "ref": TokenType.REF,
     
@@ -222,6 +225,70 @@ class Lexer:
             return Token(TokenType.FLOAT, float(number), loc)
         
         return Token(TokenType.INT, int(number), loc)
+    
+    def read_bytes(self) -> Token:
+        """Lê um literal de bytes (b'...' ou b"...")."""
+        loc = self.location()
+        self.advance()  # Pula o 'b'
+        quote = self.current_char
+        self.advance()  # Pula a aspa
+        
+        value = bytearray()
+        while self.current_char and self.current_char != quote:
+            if self.current_char == '\\':
+                self.advance()
+                escape = self.current_char
+                if escape == 'n':
+                    value.extend(b'\n')
+                elif escape == 't':
+                    value.extend(b'\t')
+                elif escape == 'r':
+                    value.extend(b'\r')
+                elif escape == '"':
+                    value.extend(b'"')
+                elif escape == "'":
+                    value.extend(b"'")
+                elif escape == '\\':
+                    value.extend(b'\\')
+                elif escape == 'x':
+                    # Hex: \x00
+                    self.advance()
+                    hex_val = ""
+                    if self.current_char:
+                        hex_val += self.current_char
+                        self.advance()
+                    if self.current_char:
+                        hex_val += self.current_char
+                        self.advance()
+                        # Voltar um pois o loops vai avançar depois?
+                        # Não, a logica do loop principal é diferente.
+                        # Vamos ajustar.
+                        self.pos -= 1 # Volta um pq o next loop vai pegar
+                    
+                    try:
+                        value.append(int(hex_val, 16))
+                    except ValueError:
+                        raise self.error(f"Sequência de escape bytes inválida: \\x{hex_val}")
+                    continue # Já avançamos
+                else:
+                    # Escape desconhecido, mantém literal?
+                    # Em python b'\\' é um backslash apenas se for duplo.
+                    # Simplificação: trata como char raw
+                    value.append(ord(escape))
+
+                if self.current_char:
+                    self.advance()
+            elif self.current_char == '\n':
+                raise self.error("Literal bytes não fechado")
+            else:
+                value.append(ord(self.current_char))
+                self.advance()
+        
+        if not self.current_char:
+            raise self.error("Literal bytes não fechado")
+        
+        self.advance()  # Pula a aspa de fechamento
+        return Token(TokenType.BYTES, bytes(value), loc)
     
     def read_string(self) -> Token:
         """Lê uma string literal."""
@@ -380,6 +447,11 @@ class Lexer:
             # String
             if self.current_char == '"':
                 self.tokens.append(self.read_string())
+                continue
+
+            # Bytes literal
+            if self.current_char == 'b' and (self.peek() == '"' or self.peek() == "'"):
+                self.tokens.append(self.read_bytes())
                 continue
             
             # Identificador ou palavra-chave
