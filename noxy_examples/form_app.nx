@@ -1,40 +1,10 @@
 use http_server select *
 use http_parser select *
 use net select *
+use strings select *
 use io select *
 
 // --- Helper Functions ---
-
-func string_replace_once(s: string, old_val: string, new_val: string) -> string
-    let parts: string[2] = split_once(s, old_val)
-    // Se parts[1] for vazio e s não termina com old_val (e old_val não está no fim), split_once retorna [s, ""]
-    // Mas split_once do http_parser retorna [s, ""] se não achar.
-    
-    // Check if found:
-    // Se parts[0] == s e parts[1] == "", nao achou?
-    // Excecao: s="foo", old="bar" -> ["foo", ""]
-    // s="foo", old="foo" -> ["", ""]
-    
-    // Melhor verificar se s contem old_val? Não tem contains.
-    // Vamos confiar no split_once comportamento observado no http_parser:
-    // "res[0] = substring(s, 0, i); res[1] = substring(s, i + len_d, len_s)"
-    // Se ele achou, retornou as partes separadas.
-    // Se ele NAO achou, "res[0] = s; res[1] = """
-    
-    let combined: string = parts[0] + old_val + parts[1]
-    if combined == s then
-         // Achou (pq reconstruiu igual) -> Errado, logica inversa.
-         // Se eu reconstruir com old_val e der igual s, entao o split foi feito corretamente?
-         // Se ele nao achou, parts[0]=s, parts[1]="", combined = s + old + "" != s
-         
-         // Entao se combined != s, significa que NAO achou?
-         // Se nao achou: parts[0]=s, parts[1]="". combined = s + old. combined != s.
-         // Se achou: parts[0]=prefix, parts[1]=suffix. combined = prefix + old + suffix == s.
-         return parts[0] + new_val + parts[1]
-    end
-    
-    return s
-end
 
 func read_stored_name() -> string
     if exists("stored_name.txt") then
@@ -58,25 +28,38 @@ end
 
 func parse_form_data(body: string) -> string
     // Esperado: username=Valor+Teste...
-    // Simplificado: Pega valor de username=
     let key: string = "username="
-    let parts: string[2] = split_once(body, key)
-    if parts[0] == body then
-         // Não achou username=
-         return "Unknown"
+    
+    if !contains(body, key) then
+        return "Unknown"
+    end
+
+    let res: SplitResult = split(body, key)
+    // Se contains é true, deve ter pelo menos 2 partes se não estiver no fim/inicio vazio
+    // Se username= estiver no inicio: ["", "Valor..."]
+    // Se username= estiver no meio: ["...&", "Valor..."]
+    
+    // Vamos pegar a ultima parte se houver multiplos (ex: teste=1&username=2)
+    // Na verdade, split retorna todas as ocorrencias.
+    // Vamos assumir formato padrao simples por enquanto ou pegar o elemento seguinte ao split.
+    // O split retira o separador.
+    
+    // Simplificacao: assumir que so tem 1 "username="
+    // Pegar parts[1] (o que vem depois)
+    
+    let val_part: string = ""
+    if res.count > 1 then
+        val_part = res.parts[1]
+    else
+        return "Unknown"
     end
     
-    // O valor é parts[1]. Pode ter &outra_coisa=...
-    let val_parts: string[2] = split_once(parts[1], "&")
-    let raw_val: string = val_parts[0]
+    // Agora separar por '&' para terminar o valor
+    let res_amp: SplitResult = split(val_part, "&")
+    let raw_val: string = res_amp.parts[0]
     
-    // Decode simples de + para espaco
-    // Não temos replace_all, vamos fazer um replace once loop ou so assumir 1 palavra
-    // Vamos tentar processar manualmente
-    
-    // Noxy não tem iterador de string facil ou replace all.
-    // Vamos apenas retornar raw por enquanto
-    return raw_val
+    // Decode '+' para espaco usando replace
+    return replace(raw_val, "+", " ")
 end
 
 // --- Handlers ---
@@ -99,19 +82,8 @@ func handle_request(req: HttpRequest) -> HttpResponse
             
             let html: string = res.data
             
-            // Replace {{LAST_USER}}
-            // Precisamos garantir que substituimos. 
-            // O split_once na logica do string_replace_once deve funcionar se implementado certo
-            // Mas vamos fazer hardcoded aqui para garantir
-            
-            let parts: string[2] = split_once(html, "{{LAST_USER}}")
-            // Se achou, parts[0] e parts[1] tem conteudo diff de html e "" (a menos que seja inicio/fim)
-            // Verificacao segura: se parts[0] + "{{LAST_USER}}" + parts[1] == html
-            
-            let check: string = parts[0] + "{{LAST_USER}}" + parts[1]
-            if check == html then
-                 html = parts[0] + name + parts[1]
-            end
+            // Replace {{LAST_USER}} usando strings module
+            html = replace(html, "{{LAST_USER}}", name)
             
             return response_html(html)
         end
