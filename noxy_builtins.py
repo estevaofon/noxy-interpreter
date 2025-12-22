@@ -829,6 +829,326 @@ def net_select(read_list: list, write_list: list, error_list: list, timeout: int
         })
 
 
+
+# ============================================================================
+# STRINGS MODULE BUILTINS
+# ============================================================================
+
+def strings_contains(s: str, sub: str) -> bool:
+    """Verifica se 'sub' existe em 's'."""
+    if not isinstance(s, str) or not isinstance(sub, str):
+        raise NoxyRuntimeError("contains() espera dois argumentos string")
+    return sub in s
+
+
+def strings_starts_with(s: str, prefix: str) -> bool:
+    """Verifica se 's' começa com 'prefix'."""
+    if not isinstance(s, str) or not isinstance(prefix, str):
+        raise NoxyRuntimeError("starts_with() espera dois argumentos string")
+    return s.startswith(prefix)
+
+
+def strings_ends_with(s: str, suffix: str) -> bool:
+    """Verifica se 's' termina com 'suffix'."""
+    if not isinstance(s, str) or not isinstance(suffix, str):
+        raise NoxyRuntimeError("ends_with() espera dois argumentos string")
+    return s.endswith(suffix)
+
+
+def strings_index_of(s: str, sub: str) -> int:
+    """Retorna índice da primeira ocorrência de 'sub' em 's'. Retorna -1 se não encontrar."""
+    if not isinstance(s, str) or not isinstance(sub, str):
+        raise NoxyRuntimeError("index_of() espera dois argumentos string")
+    return s.find(sub)
+
+
+def strings_last_index_of(s: str, sub: str) -> int:
+    """Retorna índice da última ocorrência de 'sub' em 's'. Retorna -1 se não encontrar."""
+    if not isinstance(s, str) or not isinstance(sub, str):
+        raise NoxyRuntimeError("last_index_of() espera dois argumentos string")
+    return s.rfind(sub)
+
+
+def strings_count(s: str, sub: str) -> int:
+    """Conta quantas vezes 'sub' aparece em 's'."""
+    if not isinstance(s, str) or not isinstance(sub, str):
+        raise NoxyRuntimeError("count() espera dois argumentos string")
+    if sub == "":
+        return 0  # Evita comportamento confuso do Python com string vazia
+    return s.count(sub)
+
+
+def strings_to_upper(s: str) -> str:
+    """Converte string para maiúsculas."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("to_upper() espera argumento string")
+    return s.upper()
+
+
+def strings_to_lower(s: str) -> str:
+    """Converte string para minúsculas."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("to_lower() espera argumento string")
+    return s.lower()
+
+
+def strings_trim(s: str) -> str:
+    """Remove espaços em branco do início e fim da string."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("trim() espera argumento string")
+    return s.strip()
+
+
+def strings_trim_left(s: str) -> str:
+    """Remove espaços em branco do início da string."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("trim_left() espera argumento string")
+    return s.lstrip()
+
+
+def strings_trim_right(s: str) -> str:
+    """Remove espaços em branco do fim da string."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("trim_right() espera argumento string")
+    return s.rstrip()
+
+
+def strings_reverse(s: str) -> str:
+    """Inverte a string."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("reverse() espera argumento string")
+    return s[::-1]
+
+
+def strings_repeat(s: str, n: int) -> str:
+    """Repete a string 'n' vezes."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("repeat() espera string como primeiro argumento")
+    if not isinstance(n, int):
+        raise NoxyRuntimeError("repeat() espera int como segundo argumento")
+    if n < 0:
+        raise NoxyRuntimeError("repeat() não aceita valor negativo")
+    if n > 10000:
+        raise NoxyRuntimeError("repeat() limite máximo é 10000 repetições")
+    return s * n
+
+
+def strings_substring(s: str, start: int, end: int) -> str:
+    """Extrai substring de 'start' até 'end' (exclusivo)."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("substring() espera string como primeiro argumento")
+    if not isinstance(start, int) or not isinstance(end, int):
+        raise NoxyRuntimeError("substring() espera int para start e end")
+    
+    length = len(s)
+    
+    # Normaliza índices negativos
+    if start < 0:
+        start = 0
+    if end < 0:
+        end = 0
+    if start > length:
+        start = length
+    if end > length:
+        end = length
+    if start > end:
+        return ""
+    
+    return s[start:end]
+
+
+def strings_replace(s: str, old: str, new: str) -> str:
+    """Substitui todas as ocorrências de 'old' por 'new'."""
+    if not isinstance(s, str) or not isinstance(old, str) or not isinstance(new, str):
+        raise NoxyRuntimeError("replace() espera três argumentos string")
+    if old == "":
+        return s  # Evita comportamento confuso
+    return s.replace(old, new)
+
+
+def strings_replace_first(s: str, old: str, new: str) -> str:
+    """Substitui apenas a primeira ocorrência de 'old' por 'new'."""
+    if not isinstance(s, str) or not isinstance(old, str) or not isinstance(new, str):
+        raise NoxyRuntimeError("replace_first() espera três argumentos string")
+    if old == "":
+        return s
+    return s.replace(old, new, 1)
+
+
+def strings_pad_left(s: str, width: int, char: str) -> str:
+    """Preenche a string à esquerda com 'char' até atingir 'width'."""
+    if not isinstance(s, str) or not isinstance(char, str):
+        raise NoxyRuntimeError("pad_left() espera string para s e char")
+    if not isinstance(width, int):
+        raise NoxyRuntimeError("pad_left() espera int para width")
+    if len(char) != 1:
+        raise NoxyRuntimeError("pad_left() char deve ter exatamente 1 caractere")
+    if width < 0:
+        width = 0
+    if width > 10000:
+        raise NoxyRuntimeError("pad_left() width máximo é 10000")
+    return s.rjust(width, char)
+
+
+def strings_pad_right(s: str, width: int, char: str) -> str:
+    """Preenche a string à direita com 'char' até atingir 'width'."""
+    if not isinstance(s, str) or not isinstance(char, str):
+        raise NoxyRuntimeError("pad_right() espera string para s e char")
+    if not isinstance(width, int):
+        raise NoxyRuntimeError("pad_right() espera int para width")
+    if len(char) != 1:
+        raise NoxyRuntimeError("pad_right() char deve ter exatamente 1 caractere")
+    if width < 0:
+        width = 0
+    if width > 10000:
+        raise NoxyRuntimeError("pad_right() width máximo é 10000")
+    return s.ljust(width, char)
+
+
+def strings_split(s: str, sep: str) -> NoxyStruct:
+    """Divide string pelo separador. Retorna SplitResult com array e count."""
+    if not isinstance(s, str) or not isinstance(sep, str):
+        raise NoxyRuntimeError("split() espera dois argumentos string")
+    
+    if sep == "":
+        # Split por caractere
+        parts = list(s)
+    else:
+        parts = s.split(sep)
+    
+    # Limita a 100 partes (tamanho fixo do array em Noxy)
+    MAX_PARTS = 100
+    count = min(len(parts), MAX_PARTS)
+    
+    # Preenche array até 100 elementos
+    result_parts = parts[:MAX_PARTS]
+    while len(result_parts) < MAX_PARTS:
+        result_parts.append("")
+    
+    return NoxyStruct("SplitResult", {
+        "parts": result_parts,
+        "count": count
+    })
+
+
+def strings_join(arr: Any, sep: str) -> str:
+    """Junta elementos do array usando o separador."""
+    if not isinstance(sep, str):
+        raise NoxyRuntimeError("join() espera string como separador")
+    
+    # Suporta list Python ou NoxyArray
+    if isinstance(arr, list):
+        elements = arr
+    elif isinstance(arr, NoxyArray):
+        elements = arr.elements
+    else:
+        raise NoxyRuntimeError("join() espera array como primeiro argumento")
+    
+    # Filtra elementos vazios no final (padrão Noxy de arrays fixos)
+    str_elements = []
+    for elem in elements:
+        if isinstance(elem, str):
+            if elem == "" and len(str_elements) > 0:
+                # Para quando encontrar string vazia após conteúdo (fim do array lógico)
+                # Na verdade, melhor juntar tudo e deixar o usuário controlar
+                pass
+            str_elements.append(elem)
+        else:
+            str_elements.append(str(elem))
+    
+    return sep.join(str_elements)
+
+
+def strings_join_count(arr: Any, sep: str, count: int) -> str:
+    """Junta os primeiros 'count' elementos do array usando o separador."""
+    if not isinstance(sep, str):
+        raise NoxyRuntimeError("join_count() espera string como separador")
+    if not isinstance(count, int):
+        raise NoxyRuntimeError("join_count() espera int como count")
+    
+    if isinstance(arr, list):
+        elements = arr
+    elif isinstance(arr, NoxyArray):
+        elements = arr.elements
+    else:
+        raise NoxyRuntimeError("join_count() espera array como primeiro argumento")
+    
+    # Pega apenas os primeiros 'count' elementos
+    str_elements = []
+    for i, elem in enumerate(elements):
+        if i >= count:
+            break
+        if isinstance(elem, str):
+            str_elements.append(elem)
+        else:
+            str_elements.append(str(elem))
+    
+    return sep.join(str_elements)
+
+
+def strings_is_empty(s: str) -> bool:
+    """Verifica se a string está vazia."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("is_empty() espera argumento string")
+    return len(s) == 0
+
+
+def strings_is_digit(s: str) -> bool:
+    """Verifica se todos os caracteres são dígitos (0-9)."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("is_digit() espera argumento string")
+    if len(s) == 0:
+        return False
+    return s.isdigit()
+
+
+def strings_is_alpha(s: str) -> bool:
+    """Verifica se todos os caracteres são letras."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("is_alpha() espera argumento string")
+    if len(s) == 0:
+        return False
+    return s.isalpha()
+
+
+def strings_is_alnum(s: str) -> bool:
+    """Verifica se todos os caracteres são alfanuméricos."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("is_alnum() espera argumento string")
+    if len(s) == 0:
+        return False
+    return s.isalnum()
+
+
+def strings_is_space(s: str) -> bool:
+    """Verifica se todos os caracteres são espaços em branco."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("is_space() espera argumento string")
+    if len(s) == 0:
+        return False
+    return s.isspace()
+
+
+def strings_char_at(s: str, index: int) -> str:
+    """Retorna o caractere na posição especificada."""
+    if not isinstance(s, str):
+        raise NoxyRuntimeError("char_at() espera string como primeiro argumento")
+    if not isinstance(index, int):
+        raise NoxyRuntimeError("char_at() espera int como índice")
+    if index < 0 or index >= len(s):
+        raise NoxyRuntimeError(f"char_at() índice {index} fora dos limites [0, {len(s)})")
+    return s[index]
+
+
+def strings_from_char_code(code: int) -> str:
+    """Cria uma string de um único caractere a partir do código Unicode."""
+    if not isinstance(code, int):
+        raise NoxyRuntimeError("from_char_code() espera argumento int")
+    if code < 0 or code > 0x10FFFF:
+        raise NoxyRuntimeError(f"from_char_code() código {code} fora do range Unicode válido")
+    return chr(code)
+
+
 # Dicionário de funções builtin
 BUILTINS: dict[str, Callable] = {
     "print": noxy_print,
@@ -882,6 +1202,36 @@ BUILTINS: dict[str, Callable] = {
     "sys_exit": sys_exit,
     "sys_argv": sys_argv,
     "sys_sleep": sys_sleep,
+    
+    # Strings Functions
+    "strings_contains": strings_contains,
+    "strings_starts_with": strings_starts_with,
+    "strings_ends_with": strings_ends_with,
+    "strings_index_of": strings_index_of,
+    "strings_last_index_of": strings_last_index_of,
+    "strings_count": strings_count,
+    "strings_to_upper": strings_to_upper,
+    "strings_to_lower": strings_to_lower,
+    "strings_trim": strings_trim,
+    "strings_trim_left": strings_trim_left,
+    "strings_trim_right": strings_trim_right,
+    "strings_reverse": strings_reverse,
+    "strings_repeat": strings_repeat,
+    "strings_substring": strings_substring,
+    "strings_replace": strings_replace,
+    "strings_replace_first": strings_replace_first,
+    "strings_pad_left": strings_pad_left,
+    "strings_pad_right": strings_pad_right,
+    "strings_split": strings_split,
+    "strings_join": strings_join,
+    "strings_join_count": strings_join_count,
+    "strings_is_empty": strings_is_empty,
+    "strings_is_digit": strings_is_digit,
+    "strings_is_alpha": strings_is_alpha,
+    "strings_is_alnum": strings_is_alnum,
+    "strings_is_space": strings_is_space,
+    "strings_char_at": strings_char_at,
+    "strings_from_char_code": strings_from_char_code,
 }
 
 
