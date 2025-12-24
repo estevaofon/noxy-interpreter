@@ -11,7 +11,7 @@ from ast_nodes import (
     # Expressões
     Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
     Identifier, BinaryOp, UnaryOp, CallExpr, IndexExpr, FieldAccess,
-    ArrayLiteral, RefExpr, FString, FStringExpr, ZerosExpr, GroupExpr,
+    ArrayLiteral, MapLiteral, RefExpr, FString, FStringExpr, ZerosExpr, GroupExpr,
     # Statements
     Stmt, LetStmt, GlobalStmt, AssignStmt, ExprStmt, IfStmt, WhileStmt,
     ReturnStmt, BreakStmt, FuncDef, FuncParam, StructDef, StructField, UseStmt,
@@ -318,6 +318,27 @@ class Parser:
             self.consume(TokenType.RBRACKET, "']' esperado")
             return ArrayLiteral(elements, loc)
         
+        # Map Literal: {"key": value, ...}
+        if self.match(TokenType.LBRACE):
+            keys = []
+            values = []
+            self.skip_newlines()
+            if not self.check(TokenType.RBRACE):
+                while True:
+                    self.skip_newlines()
+                    # Chave
+                    keys.append(self.parse_expression())
+                    self.consume(TokenType.COLON, "':' esperado após chave do mapa")
+                    self.skip_newlines()
+                    # Valor
+                    values.append(self.parse_expression())
+                    
+                    if not self.match(TokenType.COMMA):
+                        break
+            self.skip_newlines()
+            self.consume(TokenType.RBRACE, "'}' esperado após elementos do mapa")
+            return MapLiteral(keys, values, location=loc)
+
         # Expressão entre parênteses
         if self.match(TokenType.LPAREN):
             expr = self.parse_expression()

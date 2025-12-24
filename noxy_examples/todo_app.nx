@@ -196,10 +196,12 @@ if !strings.is_empty(port_str) then
     port = to_int(port_str)
 end
 
-let server: HttpServer = new_server("0.0.0.0", port)
+//let server: HttpServer = new_server("0.0.0.0", port)
+let host: string = "127.0.0.1"
+let server: HttpServer = new_server(host, port)
 
 if start(server) then
-    print("TODO Server running at http://0.0.0.0:" + to_str(port) + "/")
+    print(f"TODO Server running at {host}:" + to_str(port) + "/")
     
     while true do
         let event: RequestEvent = server_poll(server)

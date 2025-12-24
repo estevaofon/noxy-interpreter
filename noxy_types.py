@@ -10,7 +10,8 @@ from ast_nodes import (
     NoxyType, PrimitiveType, ArrayType, StructType, RefType, MapType,
     Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
     Identifier, BinaryOp, UnaryOp, CallExpr, IndexExpr, FieldAccess,
-    ArrayLiteral, RefExpr, FString, ZerosExpr, GroupExpr, FStringExpr,
+    ArrayLiteral, MapLiteral, RefExpr, FString, ZerosExpr, GroupExpr, FStringExpr,
+    # Statements
     Stmt, LetStmt, GlobalStmt, AssignStmt, ExprStmt, IfStmt, WhileStmt,
     ReturnStmt, BreakStmt, FuncDef, StructDef, UseStmt, Program
 )
@@ -425,6 +426,9 @@ class TypeChecker:
         if isinstance(expr, ArrayLiteral):
             return self.check_array_literal(expr)
         
+        if isinstance(expr, MapLiteral):
+            return self.check_map_literal(expr)
+        
         if isinstance(expr, RefExpr):
             inner_type = self.check_expression(expr.value)
             return RefType(inner_type)
@@ -592,6 +596,30 @@ class TypeChecker:
             elif isinstance(obj_type, StructType) and obj_type.name == "Strings":
                 method_name = f"strings_{callee_expr.field_name}"
             
+            # Array methods support
+            elif isinstance(obj_type, ArrayType):
+                # Mapping: arr.append(x) -> append(arr, x)
+                # Supported methods: append, pop, remove, length, contains
+                if callee_expr.field_name in ("append", "pop", "remove", "length", "contains"):
+                    method_name = callee_expr.field_name
+                else:
+                    raise NoxyTypeError(
+                        f"Método '{callee_expr.field_name}' não suportado para Array",
+                        expr.location
+                    )
+            
+            # Map methods support
+            elif isinstance(obj_type, MapType):
+                # Mapping: map.keys() -> keys(map)
+                # Supported methods: keys, has_key, delete, length
+                if callee_expr.field_name in ("keys", "has_key", "delete", "length"):
+                    method_name = callee_expr.field_name
+                else:
+                    raise NoxyTypeError(
+                        f"Método '{callee_expr.field_name}' não suportado para Map",
+                        expr.location
+                    )
+
         elif isinstance(callee_expr, Identifier):
              method_name = callee_expr.name
 
@@ -628,6 +656,47 @@ class TypeChecker:
             # Builtin Functions
             if method_name in BUILTIN_SIGNATURES:
                 ret_type, param_types = BUILTIN_SIGNATURES[method_name]
+                
+                # Para chamadas de método em Arrays/Maps, o primeiro argumento (self) é implícito
+                effective_args = list(expr.arguments)
+                expected_params = list(param_types)
+
+                # Se for método de array/map, verificar se precisamos validar o 'self' como primeiro param
+                if isinstance(expr.callee, FieldAccess):
+                     # Recupera o tipo do objeto (já verificado acima, mas precisamos aqui)
+                     obj_type = self.check_expression(expr.callee.object)
+                     
+                     if isinstance(obj_type, ArrayType) or isinstance(obj_type, MapType):
+                         if len(expected_params) > 0:
+                             # Verifica se o primeiro parametro da assinatura é compatível com o objeto
+                             # Ex: append(arr, val) -> arr deve ser compativel com param[0]
+                             if not self.types_compatible(expected_params[0], obj_type):
+                                  # Se signature usa Any, passa.
+                                  pass
+                             
+                             # Remove o primeiro parametro da lista de espera, pois 'self' já foi fornecido
+                             expected_params.pop(0)
+
+                # Valida quantidade de argumentos restantes
+                # Exception: print accepts variable arguments
+                if method_name != "print" and len(effective_args) != len(expected_params):
+                    raise NoxyTypeError(
+                        f"Função '{method_name}' espera {len(expected_params)} argumentos, "
+                        f"recebeu {len(effective_args)}",
+                        expr.location
+                    )
+                
+                for arg, expected_type in zip(effective_args, expected_params):
+                    arg_type = self.check_expression(arg)
+                    if not self.types_compatible(expected_type, arg_type):
+                        raise NoxyTypeError(
+                            f"Argumento tem tipo errado: "
+                            f"esperado '{type_to_str(expected_type)}', "
+                            f"obtido '{type_to_str(arg_type)}'",
+                            expr.location
+                        )
+                
+                return ret_type
                 
                 # Varargs check (print)
                 if param_types == [Any]:
@@ -757,6 +826,37 @@ class TypeChecker:
         
         return ArrayType(first_type, len(expr.elements))
     
+    def check_map_literal(self, expr: MapLiteral) -> NoxyType:
+        """Verifica literal de mapa."""
+        if not expr.keys:
+            # Mapa vazio - tipo será determinado pelo contexto ou default
+            # Retorna MapType(void, void) que deve ser compatível com qualquer MapType
+            return MapType(PrimitiveType("void"), PrimitiveType("void"))
+            
+        key_type = self.check_expression(expr.keys[0])
+        val_type = self.check_expression(expr.values[0])
+        
+        # Verifica se todas as chaves e valores têm tipos compatíveis/iguais
+        for i in range(1, len(expr.keys)):
+            k_t = self.check_expression(expr.keys[i])
+            v_t = self.check_expression(expr.values[i])
+            
+            if not self.types_compatible(key_type, k_t):
+                raise NoxyTypeError(
+                    f"Chaves do mapa têm tipos inconsistentes: "
+                    f"esperado '{type_to_str(key_type)}', obtido '{type_to_str(k_t)}'",
+                    expr.location
+                )
+            
+            if not self.types_compatible(val_type, v_t):
+                raise NoxyTypeError(
+                    f"Valores do mapa têm tipos inconsistentes: "
+                    f"esperado '{type_to_str(val_type)}', obtido '{type_to_str(v_t)}'",
+                    expr.location
+                )
+                
+        return MapType(key_type, val_type)
+
     def types_compatible(self, expected: NoxyType, actual: NoxyType) -> bool:
         """Verifica se tipos são compatíveis para atribuição."""
         if expected is Any or actual is Any:
@@ -794,12 +894,19 @@ class TypeChecker:
                 return True
                 
             return expected.size == actual.size
-
-        # Mapas
+        
+        # Maps
         if isinstance(expected, MapType) and isinstance(actual, MapType):
-             # Mapas vazios podem ser tratados aqui se tivermos literal de mapa vazio
-             # Por enquanto strict equality
-             return types_equal(expected, actual)
+            # Map vazio (void, void) é compatível com qualquer map
+            if isinstance(actual.key_type, PrimitiveType) and actual.key_type.name == "void":
+                return True
+            
+            return types_equal(expected.key_type, actual.key_type) and \
+                   types_equal(expected.value_type, actual.value_type)
+        
+        # Structs
+        if isinstance(expected, StructType) and isinstance(actual, StructType):
+            return expected.name == actual.name
         
         return types_equal(expected, actual)
 

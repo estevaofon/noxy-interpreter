@@ -8,8 +8,9 @@ from pathlib import Path
 from ast_nodes import (
     NoxyType, PrimitiveType, ArrayType, StructType, RefType, MapType,
     Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
+    Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
     Identifier, BinaryOp, UnaryOp, CallExpr, IndexExpr, FieldAccess,
-    ArrayLiteral, RefExpr, FString, FStringExpr, ZerosExpr, GroupExpr,
+    ArrayLiteral, MapLiteral, RefExpr, FString, FStringExpr, ZerosExpr, GroupExpr,
     Stmt, LetStmt, GlobalStmt, AssignStmt, ExprStmt, IfStmt, WhileStmt,
     ReturnStmt, BreakStmt, FuncDef, StructDef, UseStmt, Program
 )
@@ -407,8 +408,23 @@ class Interpreter:
             return self.evaluate_field(expr)
         
         if isinstance(expr, ArrayLiteral):
-            return [self.evaluate(e) for e in expr.elements]
+            elements = [self.evaluate(e) for e in expr.elements]
+            return elements
         
+        if isinstance(expr, MapLiteral):
+            result = {}
+            for i in range(len(expr.keys)):
+                key = self.evaluate(expr.keys[i])
+                val = self.evaluate(expr.values[i])
+                
+                # Noxy keys must be immutable types natively supported by Python dicts
+                # Exceptions: Arrays/Maps as keys (not supported as they are mutable in Noxy)
+                if isinstance(key, list) or isinstance(key, dict) or isinstance(key, NoxyArray):
+                     raise NoxyRuntimeError("Chave de mapa inválida: tipo mutável")
+                
+                result[key] = val
+            return result
+
         if isinstance(expr, RefExpr):
             return self.evaluate_ref(expr)
         
@@ -587,8 +603,41 @@ class Interpreter:
                     builtin_fn = get_builtin(builtin_name)
                     res = builtin_fn(*args)
                     return res
+                builtin_name = f"strings_{method_name}"
+                if is_builtin(builtin_name):
+                    args = [self.evaluate(arg) for arg in expr.arguments]
+                    builtin_fn = get_builtin(builtin_name)
+                    res = builtin_fn(*args)
+                    return res
                 else:
                     raise NoxyRuntimeError(f"Método Strings '{method_name}' não suportado")
+            
+            # Verifica se é Array (list or NoxyArray)
+            if isinstance(obj, list) or isinstance(obj, NoxyArray):
+                # Mapping: arr.append(x) -> append(arr, x)
+                # Dispatch directly to method name (append, pop, etc are builtins)
+                if is_builtin(method_name):
+                     args = [self.evaluate(arg) for arg in expr.arguments]
+                     # Prepend 'self' (obj)
+                     args.insert(0, obj)
+                     
+                     builtin_fn = get_builtin(method_name)
+                     return builtin_fn(*args)
+                else:
+                    raise NoxyRuntimeError(f"Método Array '{method_name}' não suportado")
+
+            # Verifica se é Map (dict)
+            if isinstance(obj, dict):
+                # Mapping: map.keys() -> keys(map)
+                if is_builtin(method_name):
+                     args = [self.evaluate(arg) for arg in expr.arguments]
+                     # Prepend 'self' (obj)
+                     args.insert(0, obj)
+                     
+                     builtin_fn = get_builtin(method_name)
+                     return builtin_fn(*args)
+                else:
+                    raise NoxyRuntimeError(f"Método Map '{method_name}' não suportado")
 
         
         # Chamada em expressão

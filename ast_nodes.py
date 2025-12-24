@@ -218,6 +218,13 @@ class ArrayLiteral(Expr):
 
 
 @dataclass
+class MapLiteral(Expr):
+    """Literal de mapa: {"k": v, ...}."""
+    keys: list[Expr]
+    values: list[Expr]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+@dataclass
 class RefExpr(Expr):
     """Expressão ref: ref node."""
     value: Expr
