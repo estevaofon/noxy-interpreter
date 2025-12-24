@@ -55,8 +55,15 @@ BUILTIN_SIGNATURES = {
     "net_select": (StructType("SelectResult"), [ArrayType(StructType("Socket"), 64), ArrayType(StructType("Socket"), 64), ArrayType(StructType("Socket"), 64), PrimitiveType("int")]),
     
     # Array Utils
-    "push": (PrimitiveType("void"), [Any, Any]), # array, item
     "remove": (PrimitiveType("void"), [Any, Any]), # array, item
+    
+    # New Array/Map Functions
+    "append": (PrimitiveType("void"), [Any, Any]),
+    "pop": (Any, [Any]),
+    "keys": (ArrayType(Any, None), [Any]),
+    "has_key": (PrimitiveType("bool"), [Any, Any]),
+    "delete": (PrimitiveType("void"), [Any, Any]),
+    "contains": (PrimitiveType("bool"), [Any, Any]),
 
     # Sys Functions
     "sys_exec": (StructType("SysResult"), [PrimitiveType("string")]),

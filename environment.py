@@ -134,6 +134,7 @@ class NoxyRef:
     target: Any = None
     target_obj: Any = None  # Objeto que contém o campo
     target_field: str = None  # Nome do campo, se for campo de struct
+    target_key: Any = None # Chave, se for mapa
     target_index: int = None  # Índice, se for elemento de array
     
     def get_value(self) -> Any:
@@ -143,7 +144,11 @@ class NoxyRef:
                 if isinstance(self.target_obj, NoxyStruct):
                     return self.target_obj.get_field(self.target_field)
                 elif isinstance(self.target_obj, dict):
+                    # Fallback ou uso interno
                     return self.target_obj.get(self.target_field)
+            elif self.target_key is not None:
+                if isinstance(self.target_obj, dict):
+                    return self.target_obj.get(self.target_key)
             elif self.target_index is not None:
                 return self.target_obj[self.target_index]
         return self.target
@@ -156,6 +161,9 @@ class NoxyRef:
                     self.target_obj.set_field(self.target_field, value)
                 elif isinstance(self.target_obj, dict):
                     self.target_obj[self.target_field] = value
+            elif self.target_key is not None:
+                 if isinstance(self.target_obj, dict):
+                    self.target_obj[self.target_key] = value
             elif self.target_index is not None:
                 self.target_obj[self.target_index] = value
         else:
@@ -172,6 +180,11 @@ class NoxyRef:
         """Cria uma referência para um campo de struct."""
         return NoxyRef(target_obj=obj, target_field=field_name)
     
+    @staticmethod
+    def create_from_key(map_obj: dict, key: Any) -> "NoxyRef":
+        """Cria uma referência para uma chave de mapa."""
+        return NoxyRef(target_obj=map_obj, target_key=key)
+
     @staticmethod
     def create_from_index(arr: list, index: int) -> "NoxyRef":
         """Cria uma referência para um elemento de array."""

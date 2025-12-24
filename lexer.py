@@ -46,6 +46,7 @@ class TokenType(Enum):
     TYPE_BYTES = auto()
     TYPE_VOID = auto()
     REF = auto()
+    MAP = auto()
     
     # Palavras-chave - Literais
     TRUE = auto()
@@ -128,6 +129,7 @@ KEYWORDS = {
     "bytes": TokenType.TYPE_BYTES,
     "void": TokenType.TYPE_VOID,
     "ref": TokenType.REF,
+    "map": TokenType.MAP,
     
     # Literais
     "true": TokenType.TRUE,

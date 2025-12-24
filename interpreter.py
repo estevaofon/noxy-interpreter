@@ -6,7 +6,7 @@ Avalia a AST e executa o programa.
 from typing import Any, Optional
 from pathlib import Path
 from ast_nodes import (
-    NoxyType, PrimitiveType, ArrayType, StructType, RefType,
+    NoxyType, PrimitiveType, ArrayType, StructType, RefType, MapType,
     Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
     Identifier, BinaryOp, UnaryOp, CallExpr, IndexExpr, FieldAccess,
     ArrayLiteral, RefExpr, FString, FStringExpr, ZerosExpr, GroupExpr,
@@ -72,7 +72,7 @@ class Interpreter:
                      val = self.get_default_value(type_node.element_type)
                      elements.append(val)
                 return NoxyArray(elements, type_node.element_type)
-            return NoxyArray([], type_node.element_type)
+            return [] # Array dinâmico começa vazio
             
         if isinstance(type_node, StructType):
             struct_def = self.current_env.get_struct(type_node.name)
@@ -91,6 +91,9 @@ class Interpreter:
             # Se não achou struct, não podemos instanciar -> Erro
             raise NoxyRuntimeError(f"Struct '{type_node.name}' não encontrado para inicialização padrão")
             
+        if isinstance(type_node, MapType):
+            return {}  # Mapa vazio
+
         return None
 
     def execute(self, stmt: Stmt):
@@ -149,7 +152,9 @@ class Interpreter:
             obj = self.evaluate(target.object)
             index = self.evaluate(target.index)
             
-            if not isinstance(index, int):
+            # Validação de índice inteiro apenas para arrays/strings
+            if not isinstance(index, int) and not isinstance(obj, dict):
+                 # Se for dict, aceita qualquer coisa
                 raise NoxyRuntimeError("Índice deve ser inteiro")
             
             if isinstance(obj, list):
@@ -162,6 +167,9 @@ class Interpreter:
                 obj[index] = value
             elif isinstance(obj, str):
                 raise NoxyRuntimeError("Strings são imutáveis")
+            elif isinstance(obj, dict):
+                # Atribuição em mapa
+                obj[index] = value
             else:
                 raise NoxyRuntimeError(f"Tipo não suporta indexação: {type(obj)}")
         
@@ -656,7 +664,7 @@ class Interpreter:
         obj = self.evaluate(expr.object)
         index = self.evaluate(expr.index)
         
-        if not isinstance(index, int):
+        if not isinstance(index, int) and not isinstance(obj, dict):
             raise NoxyRuntimeError("Índice deve ser inteiro")
         
         # Desreferencia se necessário
@@ -672,12 +680,24 @@ class Interpreter:
             if index < 0 or index >= len(obj):
                 raise NoxyIndexError(f"Índice {index} fora dos limites [0, {len(obj)})")
             return obj[index]
-        
+
         if isinstance(obj, bytes):
             if index < 0 or index >= len(obj):
                 raise NoxyIndexError(f"Índice {index} fora dos limites [0, {len(obj)})")
             return obj[index]
         
+        if isinstance(obj, dict):
+            # Acesso a mapa
+            if index not in obj:
+                # Retorna valor padrão p/ tipo do valor? Ou erro?
+                # Noxy pode optar por erro KeyNotFound ou retornar valor zero.
+                # Para segurança, erro é melhor. Para facilidade, zero.
+                # Go retorna zero. Python lança erro.
+                # Vamos lançar erro por enquanto para evitar surpresas, 
+                # ou implementar 'get' seguro depois.
+                raise NoxyRuntimeError(f"Chave '{index}' não encontrada no mapa")
+            return obj[index]
+
         raise NoxyRuntimeError(f"Tipo não suporta indexação: {type(obj)}")
     
     def evaluate_field(self, expr: FieldAccess) -> Any:
@@ -715,10 +735,13 @@ class Interpreter:
             return NoxyRef.create_from_field(obj, inner.field_name)
         
         if isinstance(inner, IndexExpr):
-            # Referência para elemento de array
-            arr = self.evaluate(inner.object)
             index = self.evaluate(inner.index)
-            return NoxyRef.create_from_index(arr, index)
+            # Se for mapa ou array
+            obj = self.evaluate(inner.object)
+            if isinstance(obj, dict):
+                return NoxyRef.create_from_key(obj, index)
+            # Array
+            return NoxyRef.create_from_index(obj, index)
         
         # Valor literal - cria referência direta
         value = self.evaluate(inner)

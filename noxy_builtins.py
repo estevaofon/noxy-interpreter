@@ -123,18 +123,10 @@ def noxy_length(obj: Any) -> int:
         return len(obj)
     if isinstance(obj, NoxyArray):
         return len(obj.elements)
-    raise NoxyRuntimeError(f"Tipo {type(obj)} não tem tamanho ddd")
+    if isinstance(obj, dict):
+        return len(obj)
+    raise NoxyRuntimeError(f"Tipo {type(obj)} não tem tamanho")
 
-def noxy_push(array: Any, item: Any) -> None:
-    """Adiciona item ao final do array (lista)."""
-    if isinstance(array, list):
-        array.append(item)
-    elif isinstance(array, NoxyArray):
-        array.elements.append(item)
-        # Se tiver tamanho fixo, isso viola. Mas arrays do NoxyArray podem ser dinâmicos se size=None?
-        # Por enquanto vamos permitir append.
-    else:
-        raise NoxyRuntimeError(f"push requer array, recebido {type(array)}")
 
 def noxy_remove(array: Any, item: Any) -> None:
     """Remove primeira ocorrência do item do array."""
@@ -161,6 +153,58 @@ def noxy_remove(array: Any, item: Any) -> None:
              pass
     else:
         raise NoxyRuntimeError(f"remove requer array, recebido {type(array)}")
+
+
+
+def noxy_append(array: Any, item: Any) -> None:
+    """Adiciona item ao final do array dinâmico."""
+    if isinstance(array, list):
+        array.append(item)
+    elif isinstance(array, NoxyArray):
+        array.elements.append(item)
+    else:
+        raise NoxyRuntimeError(f"append() espera array, recebeu {type(array).__name__}")
+
+def noxy_pop(array: Any) -> Any:
+    """Remove e retorna o último item do array."""
+    if isinstance(array, list):
+        if not array:
+             raise NoxyRuntimeError("pop() em array vazio")
+        return array.pop()
+    elif isinstance(array, NoxyArray):
+        if not array.elements:
+             raise NoxyRuntimeError("pop() em array vazio")
+        return array.elements.pop()
+    else:
+        raise NoxyRuntimeError(f"pop() espera array, recebeu {type(array).__name__}")
+
+def noxy_keys(mapping: Any) -> list:
+    """Retorna chaves do mapa."""
+    if not isinstance(mapping, dict):
+        raise NoxyRuntimeError(f"keys() espera map, recebeu {type(mapping).__name__}")
+    return list(mapping.keys())
+
+def noxy_has_key(mapping: Any, key: Any) -> bool:
+    """Verifica se chave existe no mapa."""
+    if not isinstance(mapping, dict):
+        raise NoxyRuntimeError(f"has_key() espera map, recebeu {type(mapping).__name__}")
+    return key in mapping
+
+def noxy_delete(mapping: Any, key: Any) -> None:
+    """Remove chave do mapa."""
+    if not isinstance(mapping, dict):
+        raise NoxyRuntimeError(f"delete() espera map, recebeu {type(mapping).__name__}")
+    if key in mapping:
+        del mapping[key]
+
+def noxy_contains(array: Any, item: Any) -> bool:
+    """Verifica se item existe no array."""
+    if isinstance(array, list):
+        return item in array
+    elif isinstance(array, NoxyArray):
+        return item in array.elements
+    else:
+        raise NoxyRuntimeError(f"contains() espera array, recebeu {type(array).__name__}")
 
 
 MAX_ARRAY_SIZE = 100000  # Limite máximo de elementos
@@ -1636,8 +1680,13 @@ BUILTINS: dict[str, Callable] = {
     "net_socket_set": net_socket_set,
     
     # Array utils
-    "push": noxy_push,
     "remove": noxy_remove,
+    "append": noxy_append,
+    "pop": noxy_pop,
+    "keys": noxy_keys,
+    "has_key": noxy_has_key,
+    "delete": noxy_delete,
+    "contains": noxy_contains,
     # Sys Functions
     "sys_exec": sys_exec,
     "sys_exec_output": sys_exec_output,

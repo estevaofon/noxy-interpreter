@@ -60,6 +60,24 @@ class ArrayType(NoxyType):
 
 
 @dataclass
+class MapType(NoxyType):
+    """Tipo mapa: map[K, V]."""
+    key_type: NoxyType
+    value_type: NoxyType
+    
+    def __eq__(self, other):
+        if isinstance(other, MapType):
+            return self.key_type == other.key_type and self.value_type == other.value_type
+        return False
+    
+    def __hash__(self):
+        return hash(("map", self.key_type, self.value_type))
+    
+    def __str__(self):
+        return f"map[{self.key_type}, {self.value_type}]"
+
+
+@dataclass
 class StructType(NoxyType):
     """Tipo struct definido pelo usuário."""
     name: str

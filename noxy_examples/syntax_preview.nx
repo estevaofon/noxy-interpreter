@@ -41,3 +41,5 @@ func main() -> void
         i = i + 1
     end
 end
+
+main()

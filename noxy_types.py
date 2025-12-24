@@ -7,7 +7,7 @@ Verificação de tipos estática e utilitários de tipos.
 from typing import Any
 from ast_nodes import (
 
-    NoxyType, PrimitiveType, ArrayType, StructType, RefType,
+    NoxyType, PrimitiveType, ArrayType, StructType, RefType, MapType,
     Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
     Identifier, BinaryOp, UnaryOp, CallExpr, IndexExpr, FieldAccess,
     ArrayLiteral, RefExpr, FString, ZerosExpr, GroupExpr, FStringExpr,
@@ -22,12 +22,18 @@ from pathlib import Path
 
 def type_to_str(t: NoxyType) -> str:
     """Converte um tipo para string legível."""
+    if t is Any:
+        return "any"
     return str(t)
 
 
 def types_equal(t1: NoxyType, t2: NoxyType) -> bool:
-    """Verifica se dois tipos são iguais."""
-    return t1 == t2
+    """Verifica se dois tipos são idênticos."""
+    if t1 is Any or t2 is Any:
+        return True
+    if t1 == t2:
+        return True
+    return False
 
 
 def is_numeric(t: NoxyType) -> bool:
@@ -53,6 +59,11 @@ def is_array_type(t: NoxyType) -> bool:
 def is_struct_type(t: NoxyType) -> bool:
     """Verifica se é tipo struct."""
     return isinstance(t, StructType)
+
+
+def is_map_type(t: NoxyType) -> bool:
+    """Verifica se é tipo map."""
+    return isinstance(t, MapType)
 
 
 class TypeChecker:
@@ -245,11 +256,14 @@ class TypeChecker:
             # Arrays têm regras especiais
             if isinstance(stmt.var_type, ArrayType):
                 if isinstance(init_type, ArrayType):
-                    if not types_equal(stmt.var_type.element_type, init_type.element_type):
+                    # Se array vazio (void), é compatível
+                    if isinstance(init_type.element_type, PrimitiveType) and init_type.element_type.name == "void":
+                        pass
+                    elif not types_equal(stmt.var_type.element_type, init_type.element_type):
                         raise NoxyTypeError(
                             f"Tipo do elemento do array não corresponde: "
-                            f"esperado '{stmt.var_type.element_type}', "
-                            f"obtido '{init_type.element_type}'",
+                            f"esperado '{type_to_str(stmt.var_type.element_type)}', "
+                            f"obtido '{type_to_str(init_type.element_type)}'",
                             stmt.location
                         )
                 # zeros() retorna int[]
@@ -664,24 +678,32 @@ class TypeChecker:
         obj_type = self.check_expression(expr.object)
         index_type = self.check_expression(expr.index)
         
-        if not isinstance(index_type, PrimitiveType) or index_type.name != "int":
-            raise NoxyTypeError(
-                f"Índice deve ser int, obtido '{type_to_str(index_type)}'",
-                expr.location
-            )
-        
-        # Desreferencia ref types automaticamente
         if isinstance(obj_type, RefType):
             obj_type = obj_type.inner_type
-        
+
         if isinstance(obj_type, ArrayType):
+            if not isinstance(index_type, PrimitiveType) or index_type.name != "int":
+                raise NoxyTypeError(f"Índice de array deve ser int, obtido '{type_to_str(index_type)}'", expr.location)
             return obj_type.element_type
         
         if isinstance(obj_type, PrimitiveType) and obj_type.name == "string":
+            if not isinstance(index_type, PrimitiveType) or index_type.name != "int":
+                raise NoxyTypeError(f"Índice de string deve ser int, obtido '{type_to_str(index_type)}'", expr.location)
             return PrimitiveType("string")
 
         if isinstance(obj_type, PrimitiveType) and obj_type.name == "bytes":
+            if not isinstance(index_type, PrimitiveType) or index_type.name != "int":
+                raise NoxyTypeError(f"Índice de bytes deve ser int, obtido '{type_to_str(index_type)}'", expr.location)
             return PrimitiveType("int")
+            
+        if isinstance(obj_type, MapType):
+            if not types_equal(obj_type.key_type, index_type):
+                raise NoxyTypeError(
+                    f"Tipo da chave incorreto: esperado '{type_to_str(obj_type.key_type)}', "
+                    f"obtido '{type_to_str(index_type)}'",
+                    expr.location
+                )
+            return obj_type.value_type
         
         raise NoxyTypeError(
             f"Tipo '{type_to_str(obj_type)}' não suporta indexação",
@@ -737,14 +759,47 @@ class TypeChecker:
     
     def types_compatible(self, expected: NoxyType, actual: NoxyType) -> bool:
         """Verifica se tipos são compatíveis para atribuição."""
+        if expected is Any or actual is Any:
+            return True
+            
         # null é compatível com qualquer tipo ref
         if isinstance(actual, RefType):
             if isinstance(actual.inner_type, PrimitiveType) and actual.inner_type.name == "void":
                 return isinstance(expected, RefType)
         
-        # Arrays com mesmo tipo de elemento são compatíveis
+        # Arrays
         if isinstance(expected, ArrayType) and isinstance(actual, ArrayType):
-            return types_equal(expected.element_type, actual.element_type)
+            # Array vazio (void[]) é compatível com qualquer array
+            if isinstance(actual.element_type, PrimitiveType) and actual.element_type.name == "void":
+                return True
+            
+            # Tipos de elementos devem ser iguais
+            if not types_equal(expected.element_type, actual.element_type):
+                return False
+                
+            # Se esperado tem tamanho fixo, atual deve ter mesmo tamanho?
+            # Ou se esperado é dinâmico (None), aceita fixo?
+            # Regra:
+            # - Dinâmico <- Fixo: OK (Slice/Ref behavior)
+            # - Dinâmico <- Dinâmico: OK
+            # - Fixo <- Fixo: Tamanhos devem ser iguais
+            # - Fixo <- Dinâmico: Erro (não seguro)
+            
+            if expected.size is None:
+                return True
+            
+            if actual.size is None:
+                # Permite atribuir array dinâmico a fixo (ex: retorno de zeros())
+                # Isso relaxa a segurança, mas permite usar zeros(N) para inicializar arr[N]
+                return True
+                
+            return expected.size == actual.size
+
+        # Mapas
+        if isinstance(expected, MapType) and isinstance(actual, MapType):
+             # Mapas vazios podem ser tratados aqui se tivermos literal de mapa vazio
+             # Por enquanto strict equality
+             return types_equal(expected, actual)
         
         return types_equal(expected, actual)
 

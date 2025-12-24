@@ -7,7 +7,7 @@ from typing import Optional
 from lexer import Token, TokenType, Lexer
 from ast_nodes import (
     # Tipos
-    NoxyType, PrimitiveType, ArrayType, StructType, RefType,
+    NoxyType, PrimitiveType, ArrayType, StructType, RefType, MapType,
     # Expressões
     Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
     Identifier, BinaryOp, UnaryOp, CallExpr, IndexExpr, FieldAccess,
@@ -93,8 +93,17 @@ class Parser:
             inner = self.parse_type()
             return RefType(inner)
         
+        # map[K, V]
+        if self.match(TokenType.MAP):
+            self.consume(TokenType.LBRACKET, "'[' esperado após 'map'")
+            key_type = self.parse_type()
+            self.consume(TokenType.COMMA, "',' esperado após tipo da chave")
+            value_type = self.parse_type()
+            self.consume(TokenType.RBRACKET, "']' esperado")
+            base_type = MapType(key_type, value_type)
+
         # Tipo primitivo
-        if self.match(TokenType.TYPE_INT):
+        elif self.match(TokenType.TYPE_INT):
             base_type = PrimitiveType("int")
         elif self.match(TokenType.TYPE_FLOAT):
             base_type = PrimitiveType("float")
