@@ -6,6 +6,7 @@ use sqlite
 use strings
 use json_parser select *
 use json_helpers select *
+use sys select *
 
 // ============================================
 // Database Setup
@@ -188,10 +189,17 @@ end
 
 init_db()
 
-let server: HttpServer = new_server("127.0.0.1", 8080)
+// Get PORT from environment or default to 8080
+let port_str: string = sys_getenv("PORT").value
+let port: int = 8080
+if !strings.is_empty(port_str) then
+    port = to_int(port_str)
+end
+
+let server: HttpServer = new_server("0.0.0.0", port)
 
 if start(server) then
-    print("TODO Server running at http://127.0.0.1:8080/")
+    print("TODO Server running at http://0.0.0.0:" + to_str(port) + "/")
     
     while true do
         let event: RequestEvent = server_poll(server)
