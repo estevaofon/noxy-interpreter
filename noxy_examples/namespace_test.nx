@@ -29,8 +29,8 @@ else
     print("[SQLite] Failed to open database")
 end
 
-// Clean up
-//io.remove("ns_test.txt")
-//io.remove("ns_test.db")
+
+io.remove("ns_test.txt")
+io.remove("ns_test.db")
 
 print("=== Verification Complete ===")

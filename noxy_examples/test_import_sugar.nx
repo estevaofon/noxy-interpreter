@@ -15,3 +15,8 @@ print("Arquivo escrito com sucesso via io.write")
 let info: FileInfo = io.stat("test_sugar.txt")
 print(f"File exists: {info.exists}")
 
+if io.exists("test_sugar.txt") then
+    io.remove("test_sugar.txt")
+end
+
+
