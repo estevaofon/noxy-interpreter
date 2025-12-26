@@ -41,9 +41,9 @@ if file_ns.open then
     io.close(file_ns)
 end
 
-// Limpeza
-//if exists(path) then
-//    remove(path)
-//end
+
+if exists(path) then
+    remove(path)
+end
 
 print("Testes finalizados.")
