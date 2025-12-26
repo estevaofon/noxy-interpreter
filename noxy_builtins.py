@@ -16,6 +16,8 @@ import socket
 import select
 import time
 import sqlite3
+import datetime
+import calendar
 
 
 def noxy_print(*args) -> None:
@@ -1759,3 +1761,366 @@ def is_builtin(name: str) -> bool:
     """Verifica se é uma função builtin."""
     return name in BUILTINS
 
+# ============================================================================
+# TIME MODULE BUILTINS
+# ============================================================================
+
+def _datetime_to_struct(dt: datetime.datetime) -> NoxyStruct:
+    """Helper para converter datetime python para NoxyStruct."""
+    week_day = dt.weekday() # 0 = Monday, 6 = Sunday.
+    # Adjusting to Noxy request: 0=domingo, 6=sábado.
+    # Python: Monday=0, Sunday=6.
+    # Mapping: (python_weekday + 1) % 7
+    # 0(Mon) -> 1
+    # 5(Sat) -> 6
+    # 6(Sun) -> 0
+    noxy_weekday = (week_day + 1) % 7
+    
+    return NoxyStruct("DateTime", {
+        "year": dt.year,
+        "month": dt.month,
+        "day": dt.day,
+        "hour": dt.hour,
+        "minute": dt.minute,
+        "second": dt.second,
+        "weekday": noxy_weekday,
+        "yearday": dt.timetuple().tm_yday,
+        "timestamp": int(dt.timestamp())
+    })
+
+def _struct_to_datetime(s: NoxyStruct | dict) -> datetime.datetime:
+    """Helper para converter NoxyStruct para datetime python."""
+    # Handle dict or NoxyStruct
+    fields = s.fields if isinstance(s, NoxyStruct) else s
+    
+    return datetime.datetime(
+        year=fields.get("year", 1970),
+        month=fields.get("month", 1),
+        day=fields.get("day", 1),
+        hour=fields.get("hour", 0),
+        minute=fields.get("minute", 0),
+        second=fields.get("second", 0)
+    )
+
+def time_now() -> int:
+    """Retorna timestamp Unix atual (segundos)."""
+    return int(time.time())
+
+def time_now_datetime() -> NoxyStruct:
+    """Retorna DateTime atual."""
+    now = datetime.datetime.now()
+    return _datetime_to_struct(now)
+
+def time_now_ms() -> int:
+    """Retorna timestamp em milissegundos."""
+    return int(time.time() * 1000)
+
+def time_from_timestamp(ts: int) -> NoxyStruct:
+    """Timestamp -> DateTime."""
+    dt = datetime.datetime.fromtimestamp(ts)
+    return _datetime_to_struct(dt)
+
+def time_to_timestamp(dt: Any) -> int:
+    """DateTime -> Timestamp (int)."""
+    d = _struct_to_datetime(dt)
+    return int(d.timestamp())
+
+def time_make_datetime(year: int, month: int, day: int, hour: int, minute: int, second: int) -> NoxyStruct:
+    """Cria DateTime a partir de componentes."""
+    try:
+        dt = datetime.datetime(year, month, day, hour, minute, second)
+        return _datetime_to_struct(dt)
+    except ValueError as e:
+         raise NoxyRuntimeError(f"Data inválida: {e}")
+
+def time_format(dt: Any) -> str:
+    """Formata DateTime padrão: YYYY-MM-DD HH:MM:SS."""
+    d = _struct_to_datetime(dt)
+    return d.strftime("%Y-%m-%d %H:%M:%S")
+
+def time_format_custom(dt: Any, fmt: str) -> str:
+    """Formata customizado."""
+    d = _struct_to_datetime(dt)
+    return d.strftime(fmt)
+
+def time_format_date(dt: Any) -> str:
+    """Formata apenas data: YYYY-MM-DD."""
+    d = _struct_to_datetime(dt)
+    return d.strftime("%Y-%m-%d")
+
+def time_format_time(dt: Any) -> str:
+    """Formata apenas hora: HH:MM:SS."""
+    d = _struct_to_datetime(dt)
+    return d.strftime("%H:%M:%S")
+
+def time_parse(s: str) -> NoxyStruct:
+    """Parse YYYY-MM-DD HH:MM:SS."""
+    try:
+        dt = datetime.datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+        return _datetime_to_struct(dt)
+    except ValueError:
+        try:
+             dt = datetime.datetime.strptime(s, "%Y-%m-%d")
+             return _datetime_to_struct(dt)
+        except:
+             pass
+        raise NoxyRuntimeError(f"Formato de data inválido: '{s}'. Esperado: 'YYYY-MM-DD HH:MM:SS'")
+
+def time_parse_date(s: str) -> NoxyStruct:
+    """Parse YYYY-MM-DD."""
+    try:
+        dt = datetime.datetime.strptime(s, "%Y-%m-%d")
+        return _datetime_to_struct(dt)
+    except ValueError:
+        raise NoxyRuntimeError(f"Formato de data inválido: '{s}'. Esperado: 'YYYY-MM-DD'")
+
+def time_add_seconds(ts: int, secs: int) -> int:
+    return ts + secs
+
+def time_add_days(ts: int, days: int) -> int:
+    return ts + (days * 86400)
+
+def time_diff(ts1: int, ts2: int) -> int:
+    """Diferença ts1 - ts2 em segundos."""
+    try:
+        return ts1 - ts2
+    except:
+        return 0
+
+def time_diff_duration(ts1: int, ts2: int) -> NoxyStruct:
+    """Diferença como Duration."""
+    diff_seconds = abs(ts1 - ts2)
+    days = diff_seconds // 86400
+    rem = diff_seconds % 86400
+    hours = rem // 3600
+    rem = rem % 3600
+    minutes = rem // 60
+    seconds = rem % 60
+    
+    return NoxyStruct("Duration", {
+        "days": days,
+        "hours": hours,
+        "minutes": minutes,
+        "seconds": seconds,
+        "total_seconds": diff_seconds
+    })
+
+def time_before(ts1: int, ts2: int) -> bool:
+    return ts1 < ts2
+
+def time_after(ts1: int, ts2: int) -> bool:
+    return ts1 > ts2
+
+def time_is_leap_year(year: int) -> bool:
+    return calendar.isleap(year)
+
+def time_days_in_month(year: int, month: int) -> int:
+    return calendar.monthrange(year, month)[1]
+
+def time_weekday_name(weekday: int) -> str:
+    days = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"]
+    if 0 <= weekday < 7:
+        return days[weekday]
+    return ""
+
+def time_month_name(month: int) -> str:
+    months = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    if 1 <= month <= 12:
+        return months[month]
+    return ""
+
+
+# ============================================================================
+# TIME MODULE BUILTINS
+# ============================================================================
+
+def _datetime_to_struct(dt: datetime.datetime) -> NoxyStruct:
+    """Helper para converter datetime python para NoxyStruct."""
+    week_day = dt.weekday() # 0 = Monday, 6 = Sunday. Noxy: 0=domingo? No, python returns 0=monday.
+    # User request: 0=domingo, 6=sábado.
+    # Python: Monday=0, Sunday=6.
+    # Let's adjust: Sunday(6) -> 0, Monday(0) -> 1 ... Saturday(5) -> 6.
+    # My mapping: (python_weekday + 1) % 7
+    # 0(Mon) -> 1
+    # 5(Sat) -> 6
+    # 6(Sun) -> 0
+    noxy_weekday = (week_day + 1) % 7
+    
+    return NoxyStruct("DateTime", {
+        "year": dt.year,
+        "month": dt.month,
+        "day": dt.day,
+        "hour": dt.hour,
+        "minute": dt.minute,
+        "second": dt.second,
+        "weekday": noxy_weekday,
+        "yearday": dt.timetuple().tm_yday,
+        "timestamp": int(dt.timestamp())
+    })
+
+def _struct_to_datetime(s: NoxyStruct | dict) -> datetime.datetime:
+    """Helper para converter NoxyStruct para datetime python."""
+    # Handle dict or NoxyStruct
+    fields = s.fields if isinstance(s, NoxyStruct) else s
+    
+    return datetime.datetime(
+        year=fields.get("year", 1970),
+        month=fields.get("month", 1),
+        day=fields.get("day", 1),
+        hour=fields.get("hour", 0),
+        minute=fields.get("minute", 0),
+        second=fields.get("second", 0)
+    )
+
+def time_now() -> int:
+    """Retorna timestamp Unix atual (segundos)."""
+    return int(time.time())
+
+def time_now_datetime() -> NoxyStruct:
+    """Retorna DateTime atual."""
+    now = datetime.datetime.now()
+    return _datetime_to_struct(now)
+
+def time_now_ms() -> int:
+    """Retorna timestamp em milissegundos."""
+    return int(time.time() * 1000)
+
+def time_from_timestamp(ts: int) -> NoxyStruct:
+    """Timestamp -> DateTime."""
+    dt = datetime.datetime.fromtimestamp(ts)
+    return _datetime_to_struct(dt)
+
+def time_to_timestamp(dt: Any) -> int:
+    """DateTime -> Timestamp (int)."""
+    d = _struct_to_datetime(dt)
+    return int(d.timestamp())
+
+def time_make_datetime(year: int, month: int, day: int, hour: int, minute: int, second: int) -> NoxyStruct:
+    """Cria DateTime a partir de componentes."""
+    try:
+        dt = datetime.datetime(year, month, day, hour, minute, second)
+        return _datetime_to_struct(dt)
+    except ValueError as e:
+         raise NoxyRuntimeError(f"Data inválida: {e}")
+
+def time_format(dt: Any) -> str:
+    """Formata DateTime padrão: YYYY-MM-DD HH:MM:SS."""
+    d = _struct_to_datetime(dt)
+    return d.strftime("%Y-%m-%d %H:%M:%S")
+
+def time_format_custom(dt: Any, fmt: str) -> str:
+    """Formata customizado. Noxy specs: %Y, %m, etc. Python strftime suporta isso."""
+    d = _struct_to_datetime(dt)
+    return d.strftime(fmt)
+
+def time_format_date(dt: Any) -> str:
+    """Formata apenas data: YYYY-MM-DD."""
+    d = _struct_to_datetime(dt)
+    return d.strftime("%Y-%m-%d")
+
+def time_format_time(dt: Any) -> str:
+    """Formata apenas hora: HH:MM:SS."""
+    d = _struct_to_datetime(dt)
+    return d.strftime("%H:%M:%S")
+
+def time_parse(s: str) -> NoxyStruct:
+    """Parse YYYY-MM-DD HH:MM:SS."""
+    try:
+        dt = datetime.datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+        return _datetime_to_struct(dt)
+    except ValueError:
+        try:
+             # Fallback parsing sem hora? Specs so pede esse formato.
+             # Se falhar lança erro.
+             dt = datetime.datetime.strptime(s, "%Y-%m-%d") # Try just date?
+             return _datetime_to_struct(dt)
+        except:
+             pass
+        raise NoxyRuntimeError(f"Formato de data inválido: '{s}'. Esperado: 'YYYY-MM-DD HH:MM:SS'")
+
+def time_parse_date(s: str) -> NoxyStruct:
+    """Parse YYYY-MM-DD."""
+    try:
+        dt = datetime.datetime.strptime(s, "%Y-%m-%d")
+        return _datetime_to_struct(dt)
+    except ValueError:
+        raise NoxyRuntimeError(f"Formato de data inválido: '{s}'. Esperado: 'YYYY-MM-DD'")
+
+def time_add_seconds(ts: int, secs: int) -> int:
+    return ts + secs
+
+def time_add_days(ts: int, days: int) -> int:
+    return ts + (days * 86400)
+
+def time_diff(ts1: int, ts2: int) -> int:
+    """Diferença ts1 - ts2 em segundos."""
+    return ts1 - ts2
+
+def time_diff_duration(ts1: int, ts2: int) -> NoxyStruct:
+    """Diferença como Duration."""
+    diff_seconds = abs(ts1 - ts2)
+    days = diff_seconds // 86400
+    rem = diff_seconds % 86400
+    hours = rem // 3600
+    rem = rem % 3600
+    minutes = rem // 60
+    seconds = rem % 60
+    
+    return NoxyStruct("Duration", {
+        "days": days,
+        "hours": hours,
+        "minutes": minutes,
+        "seconds": seconds,
+        "total_seconds": diff_seconds
+    })
+
+def time_before(ts1: int, ts2: int) -> bool:
+    return ts1 < ts2
+
+def time_after(ts1: int, ts2: int) -> bool:
+    return ts1 > ts2
+
+def time_is_leap_year(year: int) -> bool:
+    return calendar.isleap(year)
+
+def time_days_in_month(year: int, month: int) -> int:
+    return calendar.monthrange(year, month)[1]
+
+def time_weekday_name(weekday: int) -> str:
+    # 0=Dom, 1=Seg...
+    days = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"]
+    if 0 <= weekday < 7:
+        return days[weekday]
+    return ""
+
+def time_month_name(month: int) -> str:
+    months = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    if 1 <= month <= 12:
+        return months[month]
+    return ""
+
+# Register time functions
+BUILTINS.update({
+    "time_now": time_now,
+    "time_now_datetime": time_now_datetime,
+    "time_now_ms": time_now_ms,
+    "time_from_timestamp": time_from_timestamp,
+    "time_to_timestamp": time_to_timestamp,
+    "time_make_datetime": time_make_datetime,
+    "time_format": time_format,
+    "time_format_custom": time_format_custom,
+    "time_format_date": time_format_date,
+    "time_format_time": time_format_time,
+    "time_parse": time_parse,
+    "time_parse_date": time_parse_date,
+    "time_add_seconds": time_add_seconds,
+    "time_add_days": time_add_days,
+    "time_diff": time_diff,
+    "time_diff_duration": time_diff_duration,
+    "time_before": time_before,
+    "time_after": time_after,
+    "time_is_leap_year": time_is_leap_year,
+    "time_days_in_month": time_days_in_month,
+    "time_weekday_name": time_weekday_name,
+    "time_month_name": time_month_name,
+})

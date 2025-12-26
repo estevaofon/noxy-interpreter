@@ -624,6 +624,14 @@ class TypeChecker:
              method_name = callee_expr.name
 
         if method_name:
+
+
+
+            # Builtin Functions
+            if method_name in BUILTIN_SIGNATURES:
+                ret_type, param_types = BUILTIN_SIGNATURES[method_name]
+
+
             # Função definida pelo usuário (somente se não for builtin mapeado)
             if not method_name.startswith("io_") and not method_name.startswith("net_") and not method_name.startswith("sqlite_") and not method_name.startswith("strings_") and method_name in self.functions:
                  func_def = self.functions[method_name]
@@ -696,13 +704,15 @@ class TypeChecker:
                             expr.location
                         )
                 
-                return ret_type
+                if not method_name == "print":
+                    return ret_type
                 
                 # Varargs check (print)
                 if param_types == [Any]:
                     for arg in expr.arguments:
                         self.check_expression(arg)
                     return ret_type if ret_type else PrimitiveType("void")
+
 
                 if len(expr.arguments) != len(param_types):
                      raise NoxyTypeError(
@@ -729,6 +739,9 @@ class TypeChecker:
         # Se chegou aqui e era Identifier, mas não achou
         if isinstance(callee_expr, Identifier):
              raise NoxyTypeError(f"Função '{callee_expr.name}' não definida", expr.location)
+
+
+
              
         # Se era FieldAccess mas não mapeou
         if isinstance(callee_expr, FieldAccess):

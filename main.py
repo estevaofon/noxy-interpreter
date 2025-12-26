@@ -70,6 +70,7 @@ def run_source(source: str, filename: str = "<stdin>", typecheck: bool = True, d
     except NoxyError as e:
         print(f"Erro: {e}", file=sys.stderr)
         sys.exit(1)
+
     except Exception as e:
         print(f"Erro interno: {e}", file=sys.stderr)
         if debug:
