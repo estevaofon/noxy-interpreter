@@ -6,8 +6,7 @@ Avalia a AST e executa o programa.
 from typing import Any, Optional
 from pathlib import Path
 from ast_nodes import (
-    NoxyType, PrimitiveType, ArrayType, StructType, RefType, MapType,
-    Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
+    NoxyType, PrimitiveType, ArrayType, StructType, RefType, MapType, ModuleType,
     Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
     Identifier, BinaryOp, UnaryOp, CallExpr, IndexExpr, FieldAccess,
     ArrayLiteral, MapLiteral, RefExpr, FString, FStringExpr, ZerosExpr, GroupExpr,
@@ -15,7 +14,7 @@ from ast_nodes import (
     ReturnStmt, BreakStmt, FuncDef, StructDef, UseStmt, Program
 )
 from environment import (
-    Environment, NoxyStruct, NoxyRef, NoxyArray,
+    Environment, NoxyStruct, NoxyRef, NoxyArray, NoxyModule,
     deep_copy_value
 )
 from noxy_builtins import get_builtin, is_builtin, format_value, value_to_string
@@ -23,6 +22,8 @@ from errors import (
     NoxyRuntimeError, NoxyNameError, NoxyDivisionError, NoxyIndexError,
     NoxyBreakException, NoxyReturnException, NoxyTypeError
 )
+from lexer import tokenize
+from parser import Parser
 
 
 class Interpreter:
@@ -34,7 +35,7 @@ class Interpreter:
         self.base_path = Path(base_path)  # Diretório base para resolver imports
         # Define o caminho da stdlib relativo ao arquivo do interpretador
         self.stdlib_path = Path(__file__).parent / "stdlib"
-        self.loaded_modules: set[str] = set()  # Módulos já carregados
+        self.loaded_modules: dict[str, NoxyModule] = {}  # Cache de módulos carregados
     
     def run(self, program: Program):
         """Executa um programa Noxy."""
@@ -216,151 +217,168 @@ class Interpreter:
             value = self.evaluate(stmt.value)
         raise NoxyReturnException(value)
     
+    
+    def _load_module(self, path: Path, prefix: str = "") -> NoxyModule:
+        """Carrega um módulo de arquivo ou diretório."""
+        key = str(path.resolve())
+        if key in self.loaded_modules:
+            return self.loaded_modules[key]
+        
+        mod_name = path.stem
+        module = NoxyModule(mod_name)
+        # Prevents infinite recursion
+        self.loaded_modules[key] = module
+        
+        if path.is_dir():
+            # Carrega diretório recursivamente
+            for child in path.iterdir():
+                if child.name.startswith(".") or child.name.startswith("__"):
+                    continue
+                
+                if child.is_dir():
+                     sub_mod = self._load_module(child)
+                     module.set_member(child.name, sub_mod)
+                elif child.suffix == ".nx":
+                     sub_mod = self._load_module(child)
+                     module.set_member(child.stem, sub_mod)
+        else:
+            # Carrega arquivo único
+            source = path.read_text(encoding="utf-8")
+            tokens = tokenize(source, str(path))
+            parser = Parser(tokens)
+            program = parser.parse()
+            
+            # Executa em um ambiente isolado para resolver referências internas
+            previous_env = self.current_env
+            module_env = self.global_env.new_child()
+            self.current_env = module_env
+            
+            try:
+                # Passada 1: Imports
+                for s in program.statements:
+                    if isinstance(s, UseStmt):
+                        self.execute_use(s)
+                
+                # Passada 2: Definições (Structs e Funções)
+                for s in program.statements:
+                    if isinstance(s, FuncDef):
+                        self.current_env.define_function(s)
+                        module.set_member(s.name, s)
+                    elif isinstance(s, StructDef):
+                        self.current_env.define_struct(s)
+                        module.set_member(s.name, s)
+                
+                # Passada 3: Globais (com resolução de nomes funcionando)
+                for s in program.statements:
+                    if isinstance(s, GlobalStmt):
+                        val = self.evaluate(s.initializer)
+                        self.current_env.define(s.name, s.var_type, val)
+                        module.set_member(s.name, val)
+                        
+            finally:
+                self.current_env = previous_env
+                    
+        return module
+
     def execute_use(self, stmt: UseStmt):
         """Executa import de módulo."""
-        # Constrói o caminho do módulo
-        # use math select add  -> math.nx
-        # use utils.math select add -> utils/math.nx
-        module_path = "/".join(stmt.module_path) + ".nx"
-        full_path = self.base_path / module_path
+        # Caminho base
+        module_path_parts = stmt.module_path
         
-        # Verifica se o módulo existe
-        if not full_path.exists():
-            # Tenta na stdlib (relativo ao interpretador)
-            candidate = self.stdlib_path / module_path
-            if candidate.exists():
-                full_path = candidate
-            else:
-                raise NoxyRuntimeError(
-                    f"Módulo não encontrado: {module_path}",
-                    stmt.location
-                )
+        # Tenta resolver como arquivo ou diretório
+        # Prioridade: 
+        # 1. Arquivo exato (.nx)
+        # 2. Diretório
         
-        # Evita carregar o mesmo módulo duas vezes
-        module_key = str(full_path.resolve())
-        if module_key in self.loaded_modules:
-            return
-        self.loaded_modules.add(module_key)
+        rel_path = "/".join(module_path_parts)
+        candidates = [
+            self.base_path / (rel_path + ".nx"),           # cwd/pkg.nx
+            self.base_path / rel_path,                     # cwd/pkg/
+            self.stdlib_path / (rel_path + ".nx"),         # stdlib/pkg.nx
+            self.stdlib_path / rel_path                    # stdlib/pkg/
+        ]
         
-        # Lê e parseia o módulo
-        from lexer import tokenize
-        from parser import Parser
+        target_path = None
+        for cand in candidates:
+            if cand.exists():
+                target_path = cand
+                break
         
-        source = full_path.read_text(encoding="utf-8")
-        tokens = tokenize(source, str(full_path))
-        parser = Parser(tokens)
-        program = parser.parse()
+        if not target_path:
+             raise NoxyRuntimeError(
+                 f"Módulo não encontrado: {'.'.join(module_path_parts)}",
+                 stmt.location
+             )
         
-        # Processa imports transitivos (módulo importando outros módulos)
-        for s in program.statements:
-            if isinstance(s, UseStmt):
-                self.execute_use(s)
+        # Carrega o módulo (recursivo se diretório)
+        module = self._load_module(target_path)
         
-        # Coleta definições do módulo (funções, structs e globals)
-        module_functions: dict[str, FuncDef] = {}
-        module_structs: dict[str, StructDef] = {}
-        module_globals: dict[str, GlobalStmt] = {}
-        
-        for s in program.statements:
-            if isinstance(s, FuncDef):
-                module_functions[s.name] = s
-            elif isinstance(s, StructDef):
-                module_structs[s.name] = s
-            elif isinstance(s, GlobalStmt):
-                module_globals[s.name] = s
-        
-        # Importa os símbolos solicitados
-        # Importa os símbolos solicitados
+        # Importa para o escopo global
         if stmt.imports is None:
-            # Importação de módulo inteiro (use io)
-            # Estratégia: Importa struct de namespace (se houver, ex: io) e TODOS os structs.
-            # NÃO importa funções (para evitar poluição e conflitos).
+            # use pkg -> define 'pkg' como NoxyModule
+            # Se for 'use pkg.sub', queremos definir 'pkg'? 
+            # O comportamento padrão do Python é importar top-level.
+            # Mas Noxy 'use pkg.sub' sugeriria trazer 'sub'?
+            # Para simplificar: define o nome do último componente ou o primeiro?
+            # 'use a.b.c' -> define 'a'? Or 'c'?
+            # Python 'import a.b.c' defines 'a'. 'import a.b.c as c' defines 'c'.
+            # Noxy não tem as.
+            # Vamos definir o NOME DO MÓDULO CARREGADO.
+            # Se target_path é .../sub, o módulo chama 'sub'.
+            # Mas se for aninhado, ele devia estar dentro de 'pkg'.
+            # Com a implementação atual, _load_module retorna o objeto solto.
+            # Se eu faço 'use pkg.sub', eu carrego 'pkg/sub'. Retorna module 'sub'.
+            # Eu defino 'sub' no global ou 'pkg'?
+            # Se eu definir 'sub', é mais útil imediatamente.
             
-            # 1. Tenta importar global com mesmo nome do módulo (namespace)
-            module_name = stmt.module_path[-1]
-            if module_name in module_globals:
-                glob = module_globals[module_name]
-                # Lazy evaluation para global
-                try:
-                    # Precisamos avaliar no contexto do módulo
-                    prev_env = self.current_env
-                    self.current_env = self.global_env.new_child()
-                    # Define tudo do módulo temporariamente para o initializer rodar
-                    for name, func in module_functions.items():
-                        self.current_env.define_function(func)
-                    for name, struct in module_structs.items():
-                        self.current_env.define_struct(struct)
-                    
-                    val = self.evaluate(glob.initializer)
-                    self.global_env.define(module_name, glob.var_type, val, is_global=True)
-                finally:
-                    self.current_env = prev_env
-
-            # 2. Importa TODOS os structs
-            for name, struct in module_structs.items():
-                self.global_env.define_struct(struct)
-                
+            self.global_env.define(module.name, ModuleType(module.name), module, is_global=True)
+            
+            # Além disso, para manter compatibilidade com arquivos que esperam 
+            # structs globais (comportamento antigo de 'use math'),
+            # devemos injetar structs no global?
+            # Comportamento antigo: importava Structs e Globals com mesmo nome do módulo.
+            # Novo comportamento: Namespace limpo. 'math.Point'.
+            # BREAKING CHANGE POTENTIAL: Se user code confia em 'Point' direto.
+            # 'test_import.nx' usava 'select'.
+            # Vamos manter namespace limpo (User requested avoid pollution).
+            
         elif stmt.imports == ["*"]:
-            # Importa tudo
-            for name, func in module_functions.items():
-                self.global_env.define_function(func)
-            for name, struct in module_structs.items():
-                self.global_env.define_struct(struct)
-            
-            # Avalia globais no contexto do módulo
-            module_env = self.global_env.new_child()
-            for name, func in module_functions.items():
-                module_env.define_function(func)
-            for name, struct in module_structs.items():
-                module_env.define_struct(struct)
-            
-            # Necessário para referências cruzadas entre globais
-            prev_env = self.current_env
-            self.current_env = module_env
-            try:
-                for name, glob in module_globals.items():
-                    # Executa initializer
-                    val = self.evaluate(glob.initializer)
-                    module_env.define(name, glob.var_type, val) # Define localmente para outros usarem
-                    # Define no global env do importador
-                    self.global_env.define(name, glob.var_type, val, is_global=True)
-            finally:
-                self.current_env = prev_env
+            # use pkg select *
+            for name, val in module.members.items():
+                self._define_imported_member(name, val)
                 
         else:
-            # Importa símbolos específicos
-            
-            # Prepara ambiente para avaliação (lazy definition)
-            module_env = self.global_env.new_child()
-            for name, func in module_functions.items():
-                module_env.define_function(func)
-            for name, struct in module_structs.items():
-                module_env.define_struct(struct)
-                
-            prev_env = self.current_env
-            self.current_env = module_env
-            
-            try:
-                # Ordenação simplificada: avalia o que foi pedido
-                # Se houver dependência entre globais, isso pode falhar se não importarmos na ordem certa ou tudo.
-                # Assumimos que globais exportados são independentes ou dependem de funcs/structs.
-                
-                for symbol in stmt.imports:
-                    if symbol in module_functions:
-                        self.global_env.define_function(module_functions[symbol])
-                    elif symbol in module_structs:
-                        self.global_env.define_struct(module_structs[symbol])
-                    elif symbol in module_globals:
-                        glob = module_globals[symbol]
-                        val = self.evaluate(glob.initializer)
-                        self.global_env.define(symbol, glob.var_type, val, is_global=True)
-                    else:
-                        raise NoxyRuntimeError(
-                            f"Símbolo '{symbol}' não encontrado no módulo '{'.'.join(stmt.module_path)}'",
-                            stmt.location
-                        )
-            finally:
-                self.current_env = prev_env
+            # use pkg select a, b
+            for name in stmt.imports:
+                if name in module.members:
+                    self._define_imported_member(name, module.members[name])
+                else:
+                    raise NoxyRuntimeError(
+                        f"Símbolo '{name}' não encontrado no módulo '{module.name}'",
+                        stmt.location
+                    )
+
+    def _define_imported_member(self, name: str, val: Any):
+        """Helper para definir membro importado no ambiente global."""
+        if isinstance(val, FuncDef):
+            self.global_env.define_function(val)
+        elif isinstance(val, StructDef):
+            self.global_env.define_struct(val)
+        elif isinstance(val, NoxyModule):
+            self.global_env.define(name, ModuleType(val.name), val, is_global=True)
+        else:
+            # Variável global
+            # Precisamos do tipo. Se val é primitivo, inferir ou usar Any?
+            # O sistema de tipos estático já validou.
+            # Aqui no runtime, podemos usar NoxyType() genérico se não tivermos o tipo exato,
+            # ou tentar inferir.
+            # NoxyType() é abstract base.
+            # Vamos usar PrimitiveType("any") se não soubermos?
+            # Ou ModuleType("Var") temporário.
+            # Melhor: NoxyType() vazio se construtor permitir (não permite arg).
+            # Mas Environment espera NoxyType.
+            # Vamos usar PrimitiveType("void") como placeholder seguro ou Any.
+            self.global_env.define(name, PrimitiveType("void"), val, is_global=True)
 
     
     def execute_block(self, statements: list[Stmt]):
@@ -647,6 +665,13 @@ class Interpreter:
         
         # Chamada em expressão
         callee = self.evaluate(expr.callee)
+        
+        if isinstance(callee, FuncDef):
+            return self.call_function(callee, expr.arguments)
+            
+        if isinstance(callee, StructDef):
+            return self.create_struct(callee, expr.arguments)
+            
         raise NoxyRuntimeError(f"Não é possível chamar: {type(callee)}")
     
     def create_struct(self, struct_def: StructDef, args: list[Expr]) -> NoxyStruct:
@@ -767,6 +792,9 @@ class Interpreter:
         
         if isinstance(obj, NoxyStruct):
             return obj.get_field(expr.field_name)
+        
+        if isinstance(obj, NoxyModule):
+            return obj.get_member(expr.field_name)
         
         raise NoxyRuntimeError(f"Tipo não suporta acesso a campo: {type(obj)}")
     

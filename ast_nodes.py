@@ -4,7 +4,7 @@ Define todas as dataclasses que representam nós da Abstract Syntax Tree.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from typing import Optional, Union, Any
 from errors import SourceLocation
 
 
@@ -81,16 +81,19 @@ class MapType(NoxyType):
 class StructType(NoxyType):
     """Tipo struct definido pelo usuário."""
     name: str
+    module: Optional[str] = None
     
     def __eq__(self, other):
         if isinstance(other, StructType):
-            return self.name == other.name
+            return self.name == other.name and self.module == other.module
         return False
     
     def __hash__(self):
-        return hash(("struct", self.name))
+        return hash(("struct", self.name, self.module))
     
     def __str__(self):
+        if self.module:
+            return f"{self.module}.{self.name}"
         return self.name
 
 
@@ -109,6 +112,32 @@ class RefType(NoxyType):
     
     def __str__(self):
         return f"ref {self.inner_type}"
+
+
+@dataclass
+class ModuleType(NoxyType):
+    """Tipo módulo: para imports."""
+    name: str
+    # Armazena definições para verificação de tipos
+    # Como não temos tipos de primeira classe para funções/structs,
+    # armazenamos os Def nodes diretamente ou um proxy.
+    # Mas NoxyType deve ser serializável/simples?
+    # Vamos armazenar um dicionário de metadados.
+    # member_name -> (category, data)
+    # category: "func", "struct", "var"
+    # data: FuncDef, StructDef, ou NoxyType (para var)
+    members: dict[str, Any] = field(default_factory=dict, compare=False)
+    
+    def __eq__(self, other):
+        if isinstance(other, ModuleType):
+            return self.name == other.name
+        return False
+    
+    def __hash__(self):
+        return hash(("module", self.name))
+    
+    def __str__(self):
+        return f"module {self.name}"
 
 
 # ============================================================================

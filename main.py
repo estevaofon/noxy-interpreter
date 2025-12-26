@@ -16,6 +16,7 @@ from interpreter import Interpreter
 from errors import NoxyError
 
 
+
 def run_file(filepath: str, typecheck: bool = True, debug: bool = False):
     """Executa um arquivo Noxy."""
     path = Path(filepath).resolve()
@@ -72,10 +73,10 @@ def run_source(source: str, filename: str = "<stdin>", typecheck: bool = True, d
         sys.exit(1)
 
     except Exception as e:
-        print(f"Erro interno: {e}", file=sys.stderr)
         if debug:
             import traceback
             traceback.print_exc()
+        print(f"Erro interno: {e}", file=sys.stderr)
         sys.exit(1)
 
 

@@ -7,7 +7,7 @@ Verificação de tipos estática e utilitários de tipos.
 from typing import Any
 from ast_nodes import (
 
-    NoxyType, PrimitiveType, ArrayType, StructType, RefType, MapType,
+    NoxyType, PrimitiveType, ArrayType, StructType, RefType, MapType, ModuleType,
     Expr, IntLiteral, FloatLiteral, StringLiteral, BytesLiteral, BoolLiteral, NullLiteral,
     Identifier, BinaryOp, UnaryOp, CallExpr, IndexExpr, FieldAccess,
     ArrayLiteral, MapLiteral, RefExpr, FString, ZerosExpr, GroupExpr, FStringExpr,
@@ -84,7 +84,7 @@ class TypeChecker:
         
         self.base_path = Path(str(base_path)) if base_path else Path(".")
         self.stdlib_path = Path(__file__).parent / "stdlib"
-        self.loaded_modules: set[str] = set()
+        self.loaded_modules_cache: dict[str, ModuleType] = {}
     
     def push_scope(self):
         """Entra em novo escopo."""
@@ -149,105 +149,136 @@ class TypeChecker:
     def check_use(self, stmt: UseStmt):
         """Processa import de módulo durante a checagem de tipos."""
         # Constrói o caminho do módulo
-        module_path = "/".join(stmt.module_path) + ".nx"
-        full_path = self.base_path / module_path
+        module_path_parts = stmt.module_path
+        rel_path = "/".join(module_path_parts)
         
-        # Verifica se o arquivo existe
-        if not full_path.exists():
-            # Tenta na stdlib (relativo ao interpretador/type checker)
-            candidate = self.stdlib_path / module_path
-            if candidate.exists():
-                full_path = candidate
-            else:
-                raise NoxyTypeError(
-                    f"Módulo não encontrado: {module_path}",
-                    stmt.location
-                )
+        candidates = [
+            self.base_path / (rel_path + ".nx"),
+            self.base_path / rel_path,
+            self.stdlib_path / (rel_path + ".nx"),
+            self.stdlib_path / rel_path
+        ]
+        
+        full_path = None
+        for cand in candidates:
+            if cand.exists():
+                full_path = cand
+                break
+        
+        if not full_path:
+            raise NoxyTypeError(
+                f"Módulo não encontrado: {'.'.join(module_path_parts)}",
+                stmt.location
+            )
             
         # Evita ciclos e processamento duplicado
         module_key = str(full_path.resolve())
-        if module_key in self.loaded_modules:
-            return
-        self.loaded_modules.add(module_key)
         
-        try:
-            # Imports locais para evitar dependência circular
-            from lexer import tokenize
-            from parser import Parser
-            
-            # Lê e parseia o módulo
-            source = full_path.read_text(encoding="utf-8")
-            tokens = tokenize(source, str(full_path))
-            parser = Parser(tokens)
-            program = parser.parse()
-            
-            # Recursivamente verifica o módulo importado?
-            # Na verdade, precisamos apenas extrair as definições.
-            # Se quiséssemos verificar types do módulo também, chamaríamos recursivemente.
-            # Por segurança e completude, vamos extrair definições.
-            
-            # Coleta definições do módulo
-            module_functions: dict[str, FuncDef] = {}
-            module_structs: dict[str, StructDef] = {}
-            module_globals: dict[str, GlobalStmt] = {}
-            
-            # Nota: Ao importar, também processamos os imports DELE recursivamente
-            # Para isso, criaríamos um novo TypeChecker ou reusaríamos este?
-            # O ideal é apenas extrair as assinaturas públicas. 
-            # Mas se ele usa tipos de outros módulos, precisaríamos saber.
-            # Simplificação: Apenas extrai Structs e Funcs declarados nele.
-            
-            for s in program.statements:
-                if isinstance(s, FuncDef):
-                    module_functions[s.name] = s
-                elif isinstance(s, StructDef):
-                    module_structs[s.name] = s
-                elif isinstance(s, GlobalStmt):
-                    module_globals[s.name] = s
-                # TODO: Suporte a imports transitivos se necessário
-            
-            # Importa os símbolos solicitados
-            if stmt.imports is None:
-                # Importação de módulo inteiro (use io)
-                # 1. Tenta importar global com mesmo nome do módulo (namespace)
-                module_name = stmt.module_path[-1]
-                if module_name in module_globals:
-                    glob = module_globals[module_name]
-                    # Define tipo da variável global no escopo atual
-                    self.define_var(module_name, glob.var_type)
-                
-                # 2. Importa TODOS os structs
-                for name, struct in module_structs.items():
-                    self.structs[name] = struct
-            
-            elif stmt.imports == ["*"]:
-                # Importa tudo
-                for name, func in module_functions.items():
+        module_def = None
+        if module_key in self.loaded_modules_cache:
+             module_def = self.loaded_modules_cache[module_key]
+        else:
+             try:
+                 # Helper recursivo para carregar definições
+                 module_def = self._load_module_definitions(full_path, module_path_parts[-1])
+                 self.loaded_modules_cache[module_key] = module_def
+             except Exception as e:
+                 if isinstance(e, NoxyError):
+                     raise e
+                 import traceback
+                 traceback.print_exc()
+                 raise NoxyTypeError(f"Erro ao importar módulo: {e}", stmt.location)
 
-                    self.functions[name] = func
-                for name, struct in module_structs.items():
-                    self.structs[name] = struct
-                for name, glob in module_globals.items():
-                    self.define_var(name, glob.var_type)
-            else:
-                # Importa símbolos específicos
-                for symbol in stmt.imports:
-                    if symbol in module_functions:
-                        self.functions[symbol] = module_functions[symbol]
-                    elif symbol in module_structs:
-                        self.structs[symbol] = module_structs[symbol]
-                    elif symbol in module_globals:
-                        self.define_var(symbol, module_globals[symbol].var_type)
-                    else:
-                        raise NoxyTypeError(
-                            f"Símbolo '{symbol}' não encontrado no módulo '{'.'.join(stmt.module_path)}'",
-                            stmt.location
-                        )
-                        
-        except Exception as e:
-            if isinstance(e, NoxyError):
-                raise e
-            raise NoxyTypeError(f"Erro ao importar módulo: {e}", stmt.location)
+        # Importa os símbolos solicitados (SEMPRE executa, mesmo se cacheado)
+        if stmt.imports is None:
+            # use pkg -> define 'pkg' como ModuleType
+            self.define_var(module_def.name, module_def)
+            
+        elif stmt.imports == ["*"]:
+            # use pkg select *
+            # Importa tudo para o escopo atual
+            for name, info in module_def.members.items():
+                category, data = info
+                if category == "func":
+                    self.functions[name] = data
+                elif category == "struct":
+                    self.structs[name] = data
+                elif category == "var":
+                    self.define_var(name, data)
+        else:
+            # Importa símbolos específicos
+            for symbol in stmt.imports:
+                if symbol in module_def.members:
+                    category, data = module_def.members[symbol]
+                    if category == "func":
+                            self.functions[symbol] = data
+                    elif category == "struct":
+                            self.structs[symbol] = data
+                    elif category == "var":
+                            self.define_var(symbol, data)
+                else:
+                    raise NoxyTypeError(
+                        f"Símbolo '{symbol}' não encontrado no módulo '{'.'.join(stmt.module_path)}'",
+                        stmt.location
+                    )
+
+    def _load_module_definitions(self, path: Path, name: str) -> ModuleType:
+        """Carrega definições de um módulo (arquivo ou pasta)."""
+        module_type = ModuleType(name)
+        
+        if path.is_file():
+            # Arquivo único
+            self._parse_and_collect(path, module_type)
+        elif path.is_dir():
+             # Diretório
+             for child in path.iterdir():
+                 if child.name.startswith(".") or child.name.startswith("__"):
+                     continue
+                 
+                 if child.is_dir():
+                     sub_mod = self._load_module_definitions(child, child.name)
+                     # Submódulos são tratados como variáveis do tipo ModuleType
+                     module_type.members[child.name] = ("var", sub_mod)
+                 elif child.suffix == ".nx":
+                     # Se for arquivo no folder, seus membros são do módulo pai?
+                     # Na implementação do INTERPRETER, sim (se não me engano aggregação).
+                     # Vamos checar:
+                     # interpreter.py _load_module:
+                     # elif child.suffix == ".nx": sub_mod = self._load_module(child); module.set_member(child.stem, sub_mod)
+                     # ENTÃO NÃO! O interpretador cria sub-módulos para arquivos dentro da pasta.
+                     # "use pkg" -> pkg é pasta. pkg.mod é arquivo.
+                     # pkg.mod deve ser acessível.
+                     
+                     sub_mod = self._load_module_definitions(child, child.stem)
+                     module_type.members[child.stem] = ("var", sub_mod)
+                     
+                     # IMPORTANTE: Se o arquivo é init.nx (ou mod.nx principal?), ele poderia exportar para o pai?
+                     # Noxy atual usa hierarquia estrita.
+                     
+        return module_type
+
+    def _parse_and_collect(self, path: Path, module_type: ModuleType):
+        """Parseia arquivo e coleta definições."""
+        # Imports locais para evitar dependência circular
+        from lexer import tokenize
+        from parser import Parser
+        
+        source = path.read_text(encoding="utf-8")
+        tokens = tokenize(source, str(path))
+        parser = Parser(tokens)
+        program = parser.parse()
+        
+        for s in program.statements:
+             if isinstance(s, FuncDef):
+                 module_type.members[s.name] = ("func", s)
+             elif isinstance(s, StructDef):
+                 module_type.members[s.name] = ("struct", s)
+             elif isinstance(s, GlobalStmt):
+                 module_type.members[s.name] = ("var", s.var_type)
+             # Recursão de UseStmt?
+             # Se o módulo importa outros, eles não são exportados automaticamente (public by default?).
+             # Python não exporta imports. Noxy também não deve.
+
     
     def check_let(self, stmt: LetStmt):
         """Verifica declaração let."""
@@ -583,6 +614,59 @@ class TypeChecker:
         if isinstance(callee_expr, FieldAccess):
             # Valida se é chamada em io
             obj_type = self.check_expression(callee_expr.object)
+            
+            if isinstance(obj_type, ModuleType):
+                 # Chamada de função em módulo: pkg.func()
+                 member_name = callee_expr.field_name
+                 if member_name not in obj_type.members:
+                     raise NoxyTypeError(f"Membro '{member_name}' não encontrado no módulo '{obj_type.name}'", expr.location)
+                 
+                 category, data = obj_type.members[member_name]
+                 if category == "func":
+                     # check func def call
+                     func_def = data
+                     if len(expr.arguments) != len(func_def.params):
+                         raise NoxyTypeError(
+                             f"Função '{member_name}' espera {len(func_def.params)} argumentos, "
+                             f"recebeu {len(expr.arguments)}",
+                             expr.location
+                         )
+                     for i, (arg, param) in enumerate(zip(expr.arguments, func_def.params)):
+                         arg_type = self.check_expression(arg)
+                         if isinstance(param.param_type, RefType):
+                             inner = param.param_type.inner_type
+                             if isinstance(arg_type, StructType) and inner == arg_type: continue
+                             if isinstance(arg_type, ArrayType) and isinstance(inner, ArrayType) and arg_type.element_type == inner.element_type: continue
+                         
+                         if not self.types_compatible(param.param_type, arg_type):
+                             raise NoxyTypeError(
+                                 f"Argumento {i + 1} da função '{member_name}' tem tipo "
+                                 f"'{type_to_str(arg_type)}', esperado '{type_to_str(param.param_type)}'",
+                                 expr.location
+                             )
+                     return func_def.return_type
+                 elif category == "struct":
+                     # struct constructor via module? pkg.Struct()
+                     struct_def = data
+                     if len(expr.arguments) != len(struct_def.fields):
+                        raise NoxyTypeError(
+                            f"Construtor '{member_name}' espera {len(struct_def.fields)} argumentos, "
+                            f"recebeu {len(expr.arguments)}",
+                            expr.location
+                        )
+                     for arg, field in zip(expr.arguments, struct_def.fields):
+                        arg_type = self.check_expression(arg)
+                        if not self.types_compatible(field.field_type, arg_type):
+                            raise NoxyTypeError(
+                                f"Argumento para campo '{field.name}' tem tipo errado: "
+                                f"esperado '{type_to_str(field.field_type)}', "
+                                f"obtido '{type_to_str(arg_type)}'",
+                                expr.location
+                            )
+                     return StructType(struct_def.name, obj_type.name)
+                 else:
+                     raise NoxyTypeError(f"'{member_name}' não é chamável", expr.location)
+            
             if isinstance(obj_type, StructType) and obj_type.name == "IO":
                 # Mapeia io.method -> io_method
                 method_name = f"io_{callee_expr.field_name}"
@@ -801,10 +885,21 @@ class TypeChecker:
             obj_type = obj_type.inner_type
         
         if isinstance(obj_type, StructType):
-            struct_def = self.structs.get(obj_type.name)
+            struct_def = None
+            if obj_type.module:
+                 # Procura no módulo
+                 mod_type = self.lookup_var(obj_type.module)
+                 if isinstance(mod_type, ModuleType):
+                      if obj_type.name in mod_type.members:
+                           cat, data = mod_type.members[obj_type.name]
+                           if cat == "struct":
+                                struct_def = data
+            else:
+                 struct_def = self.structs.get(obj_type.name)
+
             if struct_def is None:
                 raise NoxyTypeError(
-                    f"Struct '{obj_type.name}' não definido",
+                    f"Struct '{obj_type.name}' não definido" + (f" no módulo '{obj_type.module}'" if obj_type.module else ""),
                     expr.location
                 )
             for field in struct_def.fields:
@@ -814,6 +909,22 @@ class TypeChecker:
                 f"Struct '{obj_type.name}' não tem campo '{expr.field_name}'",
                 expr.location
             )
+        
+        if isinstance(obj_type, ModuleType):
+            if expr.field_name not in obj_type.members:
+                 raise NoxyTypeError(f"Membro '{expr.field_name}' não encontrado no módulo '{obj_type.name}'", expr.location)
+            category, data = obj_type.members[expr.field_name]
+            if category == "var":
+                return data # data is NoxyType
+            if category == "func":
+                # Retorna tipo função? Não temos. Retorna VOID? Erro?
+                # Se estamos AVALIANDO o campo, e é função, e não chamando...
+                # Noxy não suporta first-class functions.
+                raise NoxyTypeError("Funções não podem ser usadas como valores", expr.location)
+            if category == "struct":
+                # Type?
+                raise NoxyTypeError("Structs não podem ser usados como valores", expr.location)
+
         
         raise NoxyTypeError(
             f"Tipo '{type_to_str(obj_type)}' não suporta acesso a campos",

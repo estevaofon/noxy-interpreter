@@ -245,6 +245,27 @@ def deep_copy_value(value: Any) -> Any:
         return value
 
 
+@dataclass
+class NoxyModule:
+    """Representa um módulo (arquivo ou pasta) em runtime."""
+    name: str
+    members: dict[str, Any] = field(default_factory=dict)
+    
+    def get_member(self, name: str) -> Any:
+        """Obtém um membro do módulo."""
+        if name not in self.members:
+             raise NoxyRuntimeError(f"Módulo '{self.name}' não tem o membro '{name}'")
+        return self.members[name]
+    
+    def set_member(self, name: str, value: Any):
+        """Define um membro do módulo."""
+        self.members[name] = value
+
+    def __repr__(self):
+        return f"<module '{self.name}'>"
+
+
+
 
 
 

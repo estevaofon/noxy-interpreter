@@ -116,9 +116,18 @@ class Parser:
         elif self.match(TokenType.TYPE_VOID):
             base_type = PrimitiveType("void")
         elif self.check(TokenType.IDENTIFIER):
-            # Tipo struct
+            # Tipo struct (pode ser qualificado: module.Type)
             name = self.advance().value
-            base_type = StructType(name)
+            module_name = None
+            
+            while self.match(TokenType.DOT):
+                 module_name = name # Primeiro identificador vira módulo
+                 if self.check(TokenType.IDENTIFIER):
+                      name = self.consume(TokenType.IDENTIFIER, "Nome do struct esperado").value
+                 else:
+                      raise self.error("Nome do struct esperado após '.'")
+            
+            base_type = StructType(name, module_name)
         else:
             raise self.error(f"Tipo esperado, encontrado '{self.current.value}'")
         
