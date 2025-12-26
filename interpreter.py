@@ -251,6 +251,11 @@ class Interpreter:
         parser = Parser(tokens)
         program = parser.parse()
         
+        # Processa imports transitivos (módulo importando outros módulos)
+        for s in program.statements:
+            if isinstance(s, UseStmt):
+                self.execute_use(s)
+        
         # Coleta definições do módulo (funções, structs e globals)
         module_functions: dict[str, FuncDef] = {}
         module_structs: dict[str, StructDef] = {}
