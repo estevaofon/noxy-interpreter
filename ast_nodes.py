@@ -398,6 +398,7 @@ class UseStmt(Stmt):
     """Import de módulo: use module select func1, func2."""
     module_path: list[str]  # ["utils", "math"]
     imports: Optional[list[str]]  # ["add", "multiply"], ["*"] ou None (module import)
+    alias: Optional[str] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
 
 

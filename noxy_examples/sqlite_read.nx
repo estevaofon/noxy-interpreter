@@ -1,4 +1,5 @@
 use sqlite select *
+use sqlite
 
 let db: Database = sqlite.open("loja.db")
 

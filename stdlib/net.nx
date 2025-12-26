@@ -21,12 +21,7 @@ struct SelectResult
     error_count: int
 end
 
-// Struct mágico Net para namespace (para permitir net.listen)
-struct Net
-end
 
-// Instância global "net"
-global net: Net = Net()
 
 // Wrappers
 

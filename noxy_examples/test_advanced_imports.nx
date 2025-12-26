@@ -1,5 +1,5 @@
 // Cenário 1: Importar arquivo específico dentro de pasta
-use pkg_test.mod
+use pkg_test.mod as my_mod
 // Esperado: 'mod' deve estar no escopo
 
 // Cenário 2: Select específico de sub-módulo
@@ -12,7 +12,7 @@ use pkg_test.sub select *
 
 func main() -> void
     print("--- Teste 1: use pkg_test.mod ---")
-    mod.hello()
+    my_mod.hello()
     
     print("--- Teste 2: select helper ---")
     helper()

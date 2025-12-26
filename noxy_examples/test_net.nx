@@ -1,5 +1,6 @@
 // Test net module
 use net select *
+use net
 
 // Como Noxy não tem threads, não podemos testar servidor e cliente bloqueantes no mesmo processo facilmente.
 // Mas podemos abrir um servidor, e tentar conectar (se o sistema operacional permitir connect em socket listening no mesmo processo sem accept imediato).

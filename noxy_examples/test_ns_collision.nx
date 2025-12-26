@@ -1,5 +1,7 @@
 use io select *
 use sqlite select *
+use io
+use sqlite
 
 print("Testing namespaces...")
 

@@ -1,4 +1,5 @@
 use io select *
+use io
 
 print("=== Namespace Conflict Verification ===")
 

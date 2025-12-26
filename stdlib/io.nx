@@ -17,12 +17,7 @@ struct FileInfo
     is_dir: bool
 end
 
-// Struct mágico IO para namespace (para permitir io.open)
-struct IO
-end
 
-// Instância global "io" (para uso como 'io.open')
-global io: IO = IO()
 
 // Wrappers para funções built-in (para uso com 'select *' como 'open(...)')
 

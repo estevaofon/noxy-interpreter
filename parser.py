@@ -585,6 +585,10 @@ class Parser:
         while self.match(TokenType.DOT):
             module_path.append(self.consume(TokenType.IDENTIFIER, "Nome do módulo esperado").value)
         
+        alias = None
+        if self.match(TokenType.AS):
+            alias = self.consume(TokenType.IDENTIFIER, "Nome do alias esperado").value
+
         imports = []
         if self.match(TokenType.SELECT):
             if self.match(TokenType.STAR):
@@ -598,7 +602,7 @@ class Parser:
             imports = None
             module_name = module_path[-1] # Still useful if we needed it, but interpreter will handle
         
-        return UseStmt(module_path, imports, loc)
+        return UseStmt(module_path, imports, alias, loc)
     
     def parse_assignment_or_expr(self, loc: SourceLocation) -> Stmt:
         """Parseia atribuição ou expressão."""

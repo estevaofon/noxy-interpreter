@@ -191,8 +191,9 @@ class TypeChecker:
 
         # Importa os símbolos solicitados (SEMPRE executa, mesmo se cacheado)
         if stmt.imports is None:
-            # use pkg -> define 'pkg' como ModuleType
-            self.define_var(module_def.name, module_def)
+            # use pkg -> define 'pkg' (ou alias) como ModuleType
+            var_name = stmt.alias if stmt.alias else module_def.name
+            self.define_var(var_name, module_def)
             
         elif stmt.imports == ["*"]:
             # use pkg select *

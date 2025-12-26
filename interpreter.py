@@ -331,7 +331,9 @@ class Interpreter:
             # Eu defino 'sub' no global ou 'pkg'?
             # Se eu definir 'sub', é mais útil imediatamente.
             
-            self.global_env.define(module.name, ModuleType(module.name), module, is_global=True)
+            # Define o nome do módulo: alias se existir, ou o nome do módulo.
+            param_name = stmt.alias if stmt.alias else module.name
+            self.global_env.define(param_name, ModuleType(module.name), module, is_global=True)
             
             # Além disso, para manter compatibilidade com arquivos que esperam 
             # structs globais (comportamento antigo de 'use math'),

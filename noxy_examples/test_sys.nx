@@ -1,4 +1,5 @@
 use sys select *
+use sys
 
 print("=== TESTE DO MÓDULO SYS ===")
 print("")

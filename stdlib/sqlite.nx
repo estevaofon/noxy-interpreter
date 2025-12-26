@@ -34,14 +34,7 @@ struct Statement
     ready: bool
 end
 
-// Struct namespace para sqlite.func()
-struct Sqlite
-end
 
-// Instância global
-global sqlite: Sqlite = Sqlite()
-
-// ============================================
 // Wrappers para funções builtin
 // ============================================
 

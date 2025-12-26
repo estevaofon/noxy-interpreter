@@ -56,6 +56,7 @@ class TokenType(Enum):
     # Palavras-chave - Módulos
     USE = auto()
     SELECT = auto()
+    AS = auto()
     
     # Palavras-chave - Especiais
     ZEROS = auto()
@@ -139,6 +140,7 @@ KEYWORDS = {
     # Módulos
     "use": TokenType.USE,
     "select": TokenType.SELECT,
+    "as": TokenType.AS,
     
     # Especiais
     "zeros": TokenType.ZEROS,

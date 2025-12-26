@@ -8,12 +8,7 @@ struct SplitResult
     count: int
 end
 
-// Struct namespace para sintaxe strings.func()
-struct Strings
-end
 
-// Instância global
-global strings: Strings = Strings()
 
 // ============================================
 // Funções de Busca e Verificação

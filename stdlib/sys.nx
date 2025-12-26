@@ -13,12 +13,7 @@ struct EnvResult
     error: string
 end
 
-// Struct namespace Sys
-struct Sys
-end
 
-// Instância global "sys"
-global sys: Sys = Sys()
 
 // ============================================
 // Funções de Sistema
