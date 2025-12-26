@@ -12,7 +12,7 @@ use sys select *
 // Database Setup
 // ============================================
 
-global db: Database = sqlite.open("todo.db")
+global db: sqlite.Database = sqlite.open("todo.db")
 
 func init_db() -> void
     if !db.open then
@@ -23,7 +23,7 @@ func init_db() -> void
     // Create table if not exists
     // completed: 0 = false, 1 = true
     let sql: string = "CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY, title TEXT, completed INTEGER)"
-    let res: ExecResult = sqlite.exec(db, sql)
+    let res: sqlite.ExecResult = sqlite.exec(db, sql)
     
     if !res.ok then
         print("DB Init Error: " + res.error)
@@ -38,7 +38,7 @@ end
 
 func handle_get_todos() -> HttpResponse
     let query: string = "SELECT id, title, completed FROM todos"
-    let res: QueryResult = sqlite.query(db, query)
+    let res: sqlite.QueryResult = sqlite.query(db, query)
     
     if !res.ok then
         return response_error(500, "DB Error: " + res.error)
@@ -52,7 +52,7 @@ func handle_get_todos() -> HttpResponse
     while i < res.row_count do
         if count >= 100 then break end
         
-        let row: Row = res.rows[i]
+        let row: sqlite.Row = res.rows[i]
         let id: string = row.values[0]
         let title: string = row.values[1]
         let completed: string = row.values[2]
@@ -84,9 +84,9 @@ func handle_add_todo(body: bytes) -> HttpResponse
         return response_error(400, "Missing title")
     end
     
-    let stmt: Statement = sqlite.prepare(db, "INSERT INTO todos (title, completed) VALUES (?, 0)")
+    let stmt: sqlite.Statement = sqlite.prepare(db, "INSERT INTO todos (title, completed) VALUES (?, 0)")
     sqlite.bind_text(stmt, 1, title)
-    let res: ExecResult = sqlite.step_exec(stmt)
+    let res: sqlite.ExecResult = sqlite.step_exec(stmt)
     sqlite.finalize(stmt)
     
     if !res.ok then
@@ -110,9 +110,9 @@ func handle_toggle_todo(body: bytes) -> HttpResponse
     let id: int = get_int(node, "id")
     
     let sql: string = "UPDATE todos SET completed = CASE WHEN completed = 0 THEN 1 ELSE 0 END WHERE id = ?"
-    let stmt: Statement = sqlite.prepare(db, sql)
+    let stmt: sqlite.Statement = sqlite.prepare(db, sql)
     sqlite.bind_int(stmt, 1, id)
-    let res: ExecResult = sqlite.step_exec(stmt)
+    let res: sqlite.ExecResult = sqlite.step_exec(stmt)
     sqlite.finalize(stmt)
     
     if !res.ok then
@@ -134,9 +134,9 @@ func handle_delete_todo(body: bytes) -> HttpResponse
     
     let id: int = get_int(node, "id")
     
-    let stmt: Statement = sqlite.prepare(db, "DELETE FROM todos WHERE id = ?")
+    let stmt: sqlite.Statement = sqlite.prepare(db, "DELETE FROM todos WHERE id = ?")
     sqlite.bind_int(stmt, 1, id)
-    let res: ExecResult = sqlite.step_exec(stmt)
+    let res: sqlite.ExecResult = sqlite.step_exec(stmt)
     sqlite.finalize(stmt)
     
     if !res.ok then

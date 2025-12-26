@@ -20,11 +20,6 @@ struct Duration
     total_seconds: int
 end
 
-// Namespace
-struct Time
-end
-
-global time: Time = Time()
 
 // ============================================
 // Obtenção de Tempo
