@@ -106,23 +106,67 @@ if x > 1.5 then ...      // ✗ ERRO se x é int (comparando int com float)
 
 ### 2.2 Tipos Compostos
 
-#### Arrays
+#### Arrays (Dinâmicos e Fixos)
+
+**1. Arrays Dinâmicos (Recomendado)**
 ```noxy
-// Array com tamanho fixo
-let numeros: int[5] = [1, 2, 3, 4, 5]
-let vazio: int[0] = []
+// Declaração (inicia vazio)
+let dinamico: int[] 
 
-// Array de floats
-let valores: float[3] = [1.1, 2.2, 3.3]
+// Operações
+append(dinamico, 10)
+append(dinamico, 20)
+let ultimo: int = pop(dinamico)
+let tam: int = length(dinamico)
 
-// Array de strings
-let nomes: string[2] = ["Ana", "Bruno"]
+// Verificação
+if contains(dinamico, 10) then
+    print("Encontrado")
+end
 
-// Array de structs
-let pessoas: Pessoa[3] = [p1, p2, p3]
+// Passagem por Valor (Cópia)
+// Ao passar para funçao, é feita uma CÓPIA profunda.
+// Use 'ref int[]' para permitir modificação do original.
+func add(arr: ref int[], val: int) -> void
+    append(arr, val)
+end
+```
 
-// Array inicializado com zeros
+**2. Arrays de Tamanho Fixo**
+```noxy
+// Tamanho definido na declaração (Legado/Otimização)
+let fixo: int[5] = [1, 2, 3, 4, 5]
 let zerado: int[100] = zeros(100)
+```
+
+#### Mapas (Hashmaps)
+
+```noxy
+// Tipo: map[Chave, Valor]
+// Chaves suportadas: string, int, bool (tipos imutáveis)
+
+// Declaração vazio
+let pontuacao: map[string, int] 
+
+// Inicialização com literal
+let config: map[string, bool] = {"ativo": true, "debug": false}
+
+// Operações
+pontuacao["Alice"] = 100        // Inserção/Atualização
+let valor: int = pontuacao["Alice"] // Acesso
+delete(pontuacao, "Alice")      // Remoção
+
+// Verificação
+if has_key(pontuacao, "Bob") then
+    print("Bob existe")
+end
+
+let chaves: string[] = keys(pontuacao) // Retorna array de chaves
+let tam: int = length(pontuacao)       // Retorna número de entradas
+
+// Passagem por Valor (Cópia)
+// Mapas são COPIADOS ao serem passados para funções (sem ref).
+// Use 'ref map[K,V]' para modificar o original.
 ```
 
 #### Structs
@@ -238,7 +282,9 @@ end
 
 ### 4.2 Parâmetros de Array
 ```noxy
-// Arrays são passados automaticamente como ponteiros
+// Arrays são passados por VALOR (cópia) por padrão.
+// Use 'ref' para modificar o array original na função.
+
 func processar(arr: int[], tamanho: int) -> void
     let i: int = 0
     while i < tamanho do
@@ -667,43 +713,72 @@ let arr: int[100] = zeros(100)
 
 ## 10. Sistema de Módulos
 
-### 10.1 Importação de Módulos
+### 10.1 Importação Básica
 ```noxy
-// Importar funções/símbolos específicos
-use modulo select simbolo1, simbolo2
+// 1. Importar módulo (namespace)
+use math
+let res: int = math.add(1, 2)
 
-// Importar todos os símbolos
-use modulo select *
+// 2. Importar com Alias (Renomear)
+use math as m
+let res: int = m.add(1, 2)
+
+// 3. Importar aninhado
+use utils.string_helpers
+let s: string = utils.string_helpers.upper("oi")
+
+// 4. Importar aninhado com Alias
+use utils.string_helpers as str
+let s: string = str.upper("oi")
 ```
 
-### 10.2 Exemplos de Import
+### 10.2 Importação Seletiva
 ```noxy
-// De um arquivo math.nx no mesmo diretório
-use math select add, multiply
+// Importar símbolos específicos para o escopo atual
+use math select add, pi
 
-// Usar funções importadas
-let resultado: int = add(5, 3)
-
-// Importar tudo de um módulo
-use utils select *
+let x: int = add(10, 20)  // Acesso direto
 ```
 
-### 10.3 Estrutura de Pacotes
+### 10.3 Importação de Pastas (Wildcard)
+É possível importar todos os arquivos `.nx` de uma pasta como módulos.
+```noxy
+// Estrutura:
+// stdlib/
+//   ├── io.nx
+//   ├── net.nx
+//   └── ...
+
+// Importa TODO o conteúdo da pasta 'stdlib' 
+// Cada arquivo vira um módulo acessível.
+use stdlib select *
+
+// Agora podemos acessar:
+let f: io.File = io.open(...)
+let s: net.Socket = net.connect(...)
+```
+
+### 10.4 Estrutura de Pacotes
 ```
 projeto/
 ├── main.nx
 ├── utils/
-│   ├── __init__.nx
 │   ├── math.nx
-│   └── advanced/
-│       ├── __init__.nx
-│       └── algorithms.nx
+│   └── algorithms.nx
 ```
 
 ```noxy
-// Importar de subpacote
-use utils.math select square, cube
-use utils.advanced.algorithms select sort
+// Em main.nx:
+
+// Opção A: Importar arquivo específico
+use utils.math
+math.func()
+
+// Opção B: Importar pasta utils
+use utils select *
+// Agora 'math' e 'algorithms' estão disponíveis
+math.func()
+algorithms.sort()
 ```
 
 ---
@@ -833,29 +908,32 @@ if resultado.has_value then
 end
 ```
 
-### 12.4 Array Dinâmico (Simulado)
-```noxy
-struct DynamicArray
-    elementos: int[100],
-    capacidade: int,
-    tamanho: int
-end
 
-func push(arr: ref DynamicArray, elemento: int) -> void
-    if arr.tamanho < arr.capacidade then
-        arr.elementos[arr.tamanho] = elemento
-        arr.tamanho = arr.tamanho + 1
-    end
-end
-
-func get(arr: ref DynamicArray, indice: int) -> int
-    return arr.elementos[indice]
-end
-```
 
 ---
 
-## 13. Gramática Formal (EBNF Simplificada)
+## 13. Biblioteca Padrão (Resumo)
+
+A Noxy Standard Library (`stdlib`) é distribuída junto com o interpretador.
+
+### 13.1 Módulos Principais
+| Módulo | Descrição |
+|--------|-----------|
+| `io` | Operações de arquivo e sistema de arquivos |
+| `time` | Tempo e data (timestamp, sleep) |
+| `strings` | Manipulação avançada de strings (split, join, replace) |
+| `net` | Sockets e rede básica |
+| `http` | Cliente e Servidor HTTP |
+| `json_parser` | Parser e serializer JSON |
+| `sqlite` | Banco de dados SQLite |
+| `uuid` | Geração de UUIDs |
+| `rand` | Geração de números aleatórios |
+| `math` | Funções matemáticas básicas |
+| `sys` | Informações do sistema e argumentos |
+
+---
+
+## 14. Gramática Formal (EBNF Simplificada)
 
 ```ebnf
 program        = { statement } ;
@@ -933,9 +1011,9 @@ format_spec    = [ width ] [ "." precision ] [ format_type ] ;
 
 ---
 
-## 14. Compilação e Execução
+## 15. Compilação e Execução
 
-### 14.1 Processo de Compilação
+### 15.1 Processo de Compilação
 ```bash
 # Compilar código Noxy para objeto
 uv run python compiler.py --compile arquivo.nx
@@ -947,20 +1025,20 @@ gcc -o programa.exe output.obj casting_functions.c
 ./programa.exe
 ```
 
-### 14.2 Arquivos Gerados
+### 15.2 Arquivos Gerados
 - `output.ll` - Código LLVM IR (intermediário)
 - `output.obj` - Arquivo objeto compilado
 
 ---
 
-## 15. Exemplos Completos
+## 16. Exemplos Completos
 
-### 15.1 Hello World
+### 16.1 Hello World
 ```noxy
 print("Hello from Noxy!")
 ```
 
-### 15.2 Calculadora Simples
+### 16.2 Calculadora Simples
 ```noxy
 func add(a: int, b: int) -> int
     return a + b
@@ -977,7 +1055,7 @@ print(f"Soma: {add(x, y)}")
 print(f"Produto: {multiply(x, y)}")
 ```
 
-### 15.3 Bubble Sort
+### 16.3 Bubble Sort
 ```noxy
 func bubblesort(array: int[], tamanho: int) -> void
     let desordenado: bool = true
@@ -1001,7 +1079,7 @@ bubblesort(arr, 6)
 print(to_str(arr))  // [2, 3, 5, 6, 7, 8]
 ```
 
-### 15.4 Lista Encadeada Completa
+### 16.4 Lista Encadeada Completa
 ```noxy
 struct Node
     valor: int,
@@ -1031,7 +1109,7 @@ append(head, 40)
 print_list(head)  // 10 20 30 40
 ```
 
-### 15.5 Estrutura de Dados com HashMap (Padrão)
+### 16.5 Estrutura de Dados com HashMap (Padrão)
 ```noxy
 struct Node
     key: string,
@@ -1084,16 +1162,16 @@ end
 
 ---
 
-## 16. Notas de Implementação para o Interpretador
+## 17. Notas de Implementação para o Interpretador
 
-### 16.1 Lexer
+### 17.1 Lexer
 - Tokenizar comentários `//` (ignorar até fim de linha)
 - Suportar strings com escape (`\n`, `\t`, `\"`)
 - Reconhecer f-strings com prefixo `f"`
 - Números inteiros e floats
 - Identificadores e palavras-chave
 
-### 16.2 Parser
+### 17.2 Parser
 - Usar recursive descent parsing
 - Precedência de operadores (do menor para maior):
   1. `|` (OR)
@@ -1105,7 +1183,7 @@ end
   7. Unário `-`
   8. Postfix `.`, `[]`, `()`
 
-### 16.3 Sistema de Tipos (CRÍTICO)
+### 17.3 Sistema de Tipos (CRÍTICO)
 
 #### Tipagem Estática Imutável
 - **O tipo de uma variável é fixado na declaração e NUNCA pode mudar**
@@ -1130,7 +1208,7 @@ end
 4. **Retorno de função**: Tipo do valor retornado deve corresponder ao tipo declarado
 5. **Operações**: Operandos devem ter tipos compatíveis
 
-### 16.4 Semântica de Passagem de Structs (CRÍTICO)
+### 17.4 Semântica de Passagem de Structs (CRÍTICO)
 
 #### Struct SEM ref = Cópia Completa (Passagem por Valor)
 ```
@@ -1166,25 +1244,25 @@ Implementação:
 | `ref Struct` | Ponteiro/referência | **Sim** |
 | `int[]`, `Struct[]` | Ponteiro para array | Sim (elementos) |
 
-### 16.5 Verificações de Tipo Adicionais
+### 17.5 Verificações de Tipo Adicionais
 - Arrays têm tamanho fixo conhecido em tempo de compilação
 - Structs são tipos nominais (identificados por nome, não por estrutura)
 - Referências podem ser `null`
 - Tipos são verificados em tempo de compilação, não em runtime
 
-### 16.6 Memória
+### 17.6 Memória
 - Structs são alocados no heap (via malloc ou equivalente)
 - Arrays podem ser stack ou heap dependendo do contexto
 - Referências são ponteiros
 - Para passagem por valor de structs: fazer deep copy
 
-### 16.7 Runtime
+### 17.7 Runtime
 - Implementar `print` para todos os tipos
 - Implementar conversões `to_str`, `to_int`, `to_float`
 - Implementar `strlen`, `ord`, `length`, `zeros`
 - F-strings requerem concatenação dinâmica
 
-### 16.8 Erros de Tipo (Mensagens Sugeridas)
+### 17.8 Erros de Tipo (Mensagens Sugeridas)
 ```
 // Erro de tipo em atribuição
 Erro: Não é possível atribuir valor do tipo 'float' a variável 'x' do tipo 'int'
